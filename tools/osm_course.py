@@ -79,6 +79,7 @@ COURSES = {
             ("Chuzenji", 36.7370, 139.4980, 500, 500),
         ],
         "sign": ["日光  Nikko  ↑", "中禅寺湖  Lake Chuzenji  ←"],
+        "style": {"center_line": "white_dashed"},   # one-way: lane divider only
     },
     "tsuchisaka": {
         "osm": "osm/tsuchisaka_route.json",  # Route 71 over Tsuchisaka Pass
@@ -90,6 +91,7 @@ COURSES = {
             ("Fujioka", 36.2585, 139.0744, 2500, 3000),
         ],
         "sign": ["神流  Kanna  ↑", "小鹿野  Ogano  →"],
+        "style": {"center_line": "white_dashed", "cedar": 0.7},
     },
     "nanamagari": {
         "osm": "osm/nanamagari_route.json",  # Route 732, Hakone's seven bends
@@ -100,6 +102,7 @@ COURSES = {
             ("Hiratsuka", 35.3290, 139.3497, 3500, 5000),
         ],
         "sign": ["小田原  Odawara  ↑", "箱根  Hakone  ←"],
+        "style": {"red_pavement": True, "wall_fences": True},
     },
     "tsubaki": {
         "osm": "osm/tsubaki_route.json",     # Route 75, the Tsubaki Line

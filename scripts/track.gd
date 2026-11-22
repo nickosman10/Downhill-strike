@@ -484,12 +484,19 @@ func _build_markings() -> void:
 	var all := func(_i: int) -> bool: return true
 	var yellow := SurfaceTool.new()
 	yellow.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_strip(yellow, -0.08, 0.08, 0.012, all)
+	# centre line as on the real road: orange no-passing line (default),
+	# white dashed line, or a white dashed lane divider on one-way roads
+	var cl: String = style.get("center_line", "orange")
+	var dashed := func(i: int) -> bool: return fmod(S[i], 10.0) < 5.0
+	if cl == "orange":
+		_strip(yellow, -0.08, 0.08, 0.012, all)
 	var ym := _mat(Color(0.95, 0.5, 0.08), 0.5)   # orange: Japanese no-passing centre line
 	ym.cull_mode = BaseMaterial3D.CULL_DISABLED
 	yellow.set_material(ym)
 	var white := SurfaceTool.new()
 	white.begin(Mesh.PRIMITIVE_TRIANGLES)
+	if cl == "white_dashed":
+		_strip(white, -0.07, 0.07, 0.012, dashed)
 	_strip(white, -hw + 0.12, -hw + 0.26, 0.012, all)
 	_strip(white, hw - 0.26, hw - 0.12, 0.012, all)
 	var wm := _mat(Color(0.88, 0.88, 0.85), 0.5)

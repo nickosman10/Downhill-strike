@@ -283,7 +283,7 @@ func _trees() -> void:
 		if dr < t.rail + 8.0 and p.y > t.P[t.nearest_index(p)].y + 4.0:
 			continue    # on the retaining-wall face
 		var sc: float = t.tree_data[k + 3]
-		var kind := 2 if rng.randf() < 0.1 else rng.randi_range(0, 1)
+		var kind := 2 if rng.randf() < float(t.style.get("cedar", 0.1)) else rng.randi_range(0, 1)
 		var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * rng.randf_range(0.85, 1.3), sc) * 1.3)
 		sets[kind].append(Transform3D(b, p))
 		var v := rng.randf_range(0.8, 1.15)
