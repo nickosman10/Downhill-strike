@@ -82,14 +82,14 @@ func _build_environment(dawn: bool) -> void:
 		light.light_energy = 1.0
 		light.rotation = Vector3(deg_to_rad(-14.0), deg_to_rad(40.0), 0)
 	else:
-		sky_mat.sky_top_color = Color(0.01, 0.015, 0.04)
-		sky_mat.sky_horizon_color = Color(0.05, 0.06, 0.12)
+		sky_mat.sky_top_color = Color(0.008, 0.012, 0.035)
+		sky_mat.sky_horizon_color = Color(0.06, 0.08, 0.15)
 		sky_mat.ground_horizon_color = Color(0.03, 0.035, 0.06)
 		sky_mat.ground_bottom_color = Color(0.0, 0.0, 0.0)
-		env.ambient_light_color = Color(0.35, 0.4, 0.6)
-		env.ambient_light_energy = 0.6
-		env.fog_light_color = Color(0.03, 0.04, 0.08)
-		env.fog_density = 0.009
+		env.ambient_light_color = Color(0.3, 0.38, 0.6)
+		env.ambient_light_energy = 0.55
+		env.fog_light_color = Color(0.035, 0.05, 0.1)
+		env.fog_density = 0.006
 		light.light_color = Color(0.55, 0.62, 0.9)
 		light.light_energy = 0.45
 		light.rotation = Vector3(deg_to_rad(-50.0), deg_to_rad(-30.0), 0)
@@ -100,6 +100,17 @@ func _build_environment(dawn: bool) -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.fog_enabled = true
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.1
+	# bloom so lamps and lenses glow like the anime CG
+	env.glow_enabled = true
+	env.glow_intensity = 0.9
+	env.glow_strength = 1.1
+	env.glow_bloom = 0.04
+	env.glow_hdr_threshold = 1.0
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 1.05
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)

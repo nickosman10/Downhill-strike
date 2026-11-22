@@ -18,6 +18,7 @@ var minimap: Minimap
 var cup: CupWidget
 var result_panel: PanelContainer
 var result_label: Label
+var speed_fx: ColorRect
 
 
 class Minimap extends Control:
@@ -107,6 +108,13 @@ func _label(text: String, size: int, pos: Vector2, align := HORIZONTAL_ALIGNMENT
 
 func build(r) -> void:
 	race = r
+	speed_fx = ColorRect.new()
+	speed_fx.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	speed_fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sm := ShaderMaterial.new()
+	sm.shader = load("res://shaders/speed_lines.gdshader")
+	speed_fx.material = sm
+	add_child(speed_fx)
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -212,6 +220,9 @@ func show_result(text: String) -> void:
 
 func update_hud(r) -> void:
 	var car: PlayerCar = r.car
+	var sm := speed_fx.material as ShaderMaterial
+	sm.set_shader_parameter("intensity", clampf((car.speed - 22.0) / 18.0, 0.0, 1.0))
+	sm.set_shader_parameter("time_s", Time.get_ticks_msec() / 1000.0)
 	info_label.text = "%s  ·  %s" % [r.course.name, Game.MODE_NAMES[r.mode]]
 	time_label.text = Game.format_time(r.race_time)
 	speed_label.text = "%d km/h" % int(car.speed * 3.6)

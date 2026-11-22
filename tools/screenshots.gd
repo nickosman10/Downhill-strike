@@ -84,6 +84,31 @@ func _run() -> void:
 		[3200.0, "05_drift", true], [6950.0, "06_final_hairpins", false]]
 	for spot in spots:
 		await _shoot_at(race, spot[0], spot[1], spot[2])
+	# 8. car close-ups
+	race.hud.visible = false
+	car.place(80.0, 0.0)
+	car.vel = Vector2.ZERO
+	car.bot_throttle = 0.0
+	car.bot_brake = 1.0
+	if race.rival:
+		race.rival.s = 400.0
+	await _frames(3)
+	for ch in race.get_children():
+		if ch is WorldEnvironment:
+			ch.environment.ambient_light_energy = 2.5
+	var cc := Camera3D.new()
+	race.add_child(cc)
+	var b := car.global_transform.basis
+	var cp := car.global_position
+	for view in [["08_car_front", -b.z * 4.2 + b.x * 3.0 + Vector3.UP * 1.3], ["09_car_side", b.x * 5.5 - b.z * 0.4 + Vector3.UP * 1.0],
+			["10_car_rear", b.z * 4.4 - b.x * 2.6 + Vector3.UP * 1.6]]:
+		cc.global_position = cp + view[1]
+		cc.look_at(cp + Vector3.UP * 0.6, Vector3.UP)
+		cc.fov = 50.0
+		cc.current = true
+		await _frames(4)
+		await _save(view[0])
+	race.hud.visible = true
 	# 7. overhead view of the whole course
 	var cam := Camera3D.new()
 	race.add_child(cam)

@@ -129,6 +129,97 @@ def pull_to(integ, target, sigma=40):
     return out
 
 
+LEAD_IN = 30.0
+TAIL = 40.0
+RAIL = 3.3 + 0.55 + 0.45
+
+
+def build_3d(track, grades):
+    """Add flat-ish lead-in/tail and integrate a smoothed grade profile into heights."""
+    (x0, y0), (x1, y1) = track[0], track[1]
+    d0 = math.atan2(y1 - y0, x1 - x0)
+    lead = [(x0 - math.cos(d0) * STEP * k, y0 - math.sin(d0) * STEP * k) for k in range(int(LEAD_IN / STEP), 0, -1)]
+    (xa, ya), (xb, yb) = track[-2], track[-1]
+    d1 = math.atan2(yb - ya, xb - xa)
+    tail = [(xb + math.cos(d1) * STEP * k, yb + math.sin(d1) * STEP * k) for k in range(1, int(TAIL / STEP) + 1)]
+    pts = lead + list(track) + tail
+    gr = [-0.02] * len(lead) + grades + [-0.02] * len(tail)
+    r = 12
+    sm = [sum(gr[max(0, i - r):i + r + 1]) / len(gr[max(0, i - r):i + r + 1]) for i in range(len(gr))]
+    out = []
+    y = 0.0
+    for i, (x, z) in enumerate(pts):
+        if i > 0:
+            y += sm[i] * math.dist(pts[i], pts[i - 1])
+        out.append((x, y, z))
+    return out
+
+
+def build_terrain(cid, xyz, cell=5.0, margin=220.0):
+    """Heightfield the road sits in: cut into the hillside near the road, blending
+    into noisy mountain terrain further out. Saved as float32 grid."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    from scipy.ndimage import zoom, gaussian_filter
+    P = np.array(xyz)
+    xz = P[:, [0, 2]]
+    mn = xz.min(0) - margin
+    mx = xz.max(0) + margin
+    nx = int((mx[0] - mn[0]) / cell) + 1
+    nz = int((mx[1] - mn[1]) / cell) + 1
+    gx, gz = np.meshgrid(mn[0] + np.arange(nx) * cell, mn[1] + np.arange(nz) * cell)
+    q = np.stack([gx.ravel(), gz.ravel()], 1)
+    tree = cKDTree(xz)
+    d, idx = tree.query(q)
+    hr = P[idx, 1]
+    # broad "mountain" base: road heights averaged over a wide area
+    k = 48
+    dk, ik = tree.query(q, k=k)
+    w = np.exp(-0.5 * (dk / 160.0) ** 2) + 1e-9
+    base = (P[ik, 1] * w).sum(1) / w.sum(1)
+    rng = np.random.default_rng(abs(hash(cid)) % 2**32)
+    noise = np.zeros((nz, nx))
+    for octave, amp in [(48, 34.0), (16, 12.0), (6, 4.0)]:
+        sz = (max(2, nz // octave + 2), max(2, nx // octave + 2))
+        n = rng.standard_normal(sz)
+        n = zoom(n, (nz / sz[0] * 1.02, nx / sz[1] * 1.02), order=3)[:nz, :nx]
+        noise += n * amp
+    natural = base + noise.ravel() * np.clip(d / 140.0, 0.0, 1.0) + np.clip(d - 40.0, 0, None) * 0.08
+    t = np.clip((d - (RAIL + 1.0)) / 30.0, 0.0, 1.0)
+    t = t * t * (3 - 2 * t)
+    h = (hr - 0.6) * (1 - t) + natural * t
+    h = h.reshape(nz, nx)
+    # smooth the far terrain a little, but never touch the road corridor
+    hs = gaussian_filter(h, 1.2)
+    near = (d.reshape(nz, nx) < RAIL + 12.0)
+    h = np.where(near, h, hs)
+    h[d.reshape(nz, nx) < RAIL + 1.0] = (hr - 0.6).reshape(nz, nx)[d.reshape(nz, nx) < RAIL + 1.0]
+    fname = f"{cid}_terrain.bin"
+    h.astype("<f4").tofile(os.path.join(os.path.dirname(__file__), "..", "tracks", fname))
+    # trees: dense cedar forest on gentle slopes away from the road
+    trees = []
+    cand = rng.uniform(0, 1, (int(nx * nz * 0.5), 2)) * [mx[0] - mn[0], mx[1] - mn[1]] + mn
+    dc, ic = tree.query(cand)
+    for (x, z), dd in zip(cand, dc):
+        if dd < RAIL + 3.0 or dd > 170.0:
+            continue
+        if rng.uniform() > (1.0 if dd < 70 else 0.3):
+            continue
+        fx = (x - mn[0]) / cell; fz = (z - mn[1]) / cell
+        i0, j0 = int(fz), int(fx)
+        if i0 >= nz - 1 or j0 >= nx - 1:
+            continue
+        a, b = fz - i0, fx - j0
+        y = (h[i0, j0] * (1 - a) * (1 - b) + h[i0, j0 + 1] * (1 - a) * b +
+             h[i0 + 1, j0] * a * (1 - b) + h[i0 + 1, j0 + 1] * a * b)
+        slope = abs(h[i0, j0 + 1] - h[i0, j0]) / cell + abs(h[i0 + 1, j0] - h[i0, j0]) / cell
+        if slope > 1.4:
+            continue
+        trees += [round(float(x), 1), round(float(y), 2), round(float(z), 1), round(float(rng.uniform(0.75, 1.35)), 2)]
+    print(f"terrain {nx}x{nz} cells, {len(trees)//4} trees")
+    return {"file": fname, "origin": [float(mn[0]), float(mn[1])], "cell": cell, "nx": nx, "nz": nz}, trees
+
+
 def build(cid, overlay=None):
     c = COURSES[cid]
     raw = c["points"]
@@ -180,17 +271,17 @@ def build(cid, overlay=None):
     # grade per step
     g = c["grade"]
     grades = []
-    for i in range(len(k)):
-        f = i / max(len(k) - 1, 1)
+    for i in range(len(track)):
+        f = i / max(len(track) - 1, 1)
         for (f0, g0), (f1, g1) in zip(g, g[1:]):
             if f0 <= f <= f1:
-                grades.append(round(g0 + (g1 - g0) * (f - f0) / (f1 - f0), 3)); break
-    drift = 0.0
-    tight = min(1 / max(abs(v), 1e-6) for v in k)
-    print(f"tightest radius {tight:.1f} m")
-    print(f"{cid}: {len(k)*STEP:.0f} m, scale {scale:.2f} m/px, "
-          f"hairpins {hp}, overlap pairs {bad}, end drift {drift:.0f} m")
-    out = {"id": cid, "step": STEP, "points": [[round(x, 2), round(y, 2)] for x, y in track], "grade": grades, "hairpins": hp}
+                grades.append((g0 + (g1 - g0) * (f - f0) / (f1 - f0)) / 100.0); break
+    xyz = build_3d(track, grades)
+    print(f"{cid}: {len(track)*STEP:.0f} m, scale {scale:.2f} m/px, hairpins {hp}, "
+          f"overlap pairs {bad}, drop {xyz[0][1]-xyz[-1][1]:.0f} m")
+    terrain, trees = build_terrain(cid, xyz)
+    out = {"id": cid, "step": STEP, "points": [[round(v, 3) for v in p] for p in xyz],
+           "hairpins": hp, "terrain": terrain, "trees": trees}
     path = os.path.join(os.path.dirname(__file__), "..", "tracks", cid + ".json")
     json.dump(out, open(path, "w"), separators=(",", ":"))
     if overlay:
@@ -198,7 +289,7 @@ def build(cid, overlay=None):
         im = Image.open(overlay).convert("RGB").resize((c_w := Image.open(overlay).width * 2, Image.open(overlay).height * 2))
         d = ImageDraw.Draw(im)
         # align integrated track to spline start/orientation (already same frame, same start heading)
-        d.line([(x / scale * 2, y / scale * 2) for x, y in track], fill=(255, 0, 0), width=2)
+        d.line([(x / scale * 2, z / scale * 2) for x, _, z in xyz], fill=(255, 0, 0), width=2)
         d.line([(x * 2, y * 2) for x, y in raw], fill=(0, 160, 255), width=1)
         o = overlay.rsplit(".", 1)[0] + "_trace.png"
         im.save(o)

@@ -36,13 +36,23 @@ func build(c: Dictionary) -> void:
 	rail = hw + GUTTER_W + SHOULDER
 	build_centerline(c)
 	_compute_grass()
-	finish_s = length - 25.0
+	finish_s = length - 40.0
+	if traced:
+		# the road gets a short verge that dives into the terrain mesh
+		for i in P.size():
+			grass_l[i] = 1.4
+			grass_r[i] = 1.4
 	_build_road_mesh()
 	_build_markings()
 	_build_guardrails()
-	_build_trees()
+	_build_roadside()
 	_build_start_finish()
-	_build_ground()
+	if traced:
+		_build_terrain()
+		_build_forest()
+	else:
+		_build_trees()
+		_build_ground()
 
 
 # ---------------------------------------------------------------- geometry
@@ -114,27 +124,23 @@ func _generate_centerline(segs: Array, default_grade: float) -> void:
 
 
 ## Centerline traced from a real course map (see tools/trace_course.py).
+## Points are [x, y, z] with heights already integrated, lead-in included.
+var traced := false
+var terrain_info: Dictionary = {}
+var tree_data: Array = []
+
+
 func _load_traced(path: String) -> void:
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
-	var pts: Array = data.points
-	var grades: Array[float] = []
-	for g in data.grade:
-		grades.append(float(g) / 100.0)
-	grades = _smooth(grades, 12)
+	traced = true
+	terrain_info = data.get("terrain", {})
+	tree_data = data.get("trees", [])
 	hairpins = int(data.get("hairpins", 0))
-	# flat lead-in before the first traced point, along the initial heading
-	var p0 := Vector3(pts[0][0], 0.0, pts[0][1])
-	var p1 := Vector3(pts[1][0], 0.0, pts[1][1])
-	var d0 := (p1 - p0).normalized()
+	var pts: Array = data.points
+	var n := pts.size()
 	var raw: Array[Vector3] = []
-	var lead := int(LEAD_IN / 2.0)
-	for k in range(lead, 0, -1):
-		raw.append(p0 - d0 * (k * 2.0))
 	for p in pts:
-		raw.append(Vector3(p[0], 0.0, p[1]))
-	var n := raw.size()
-	var y := 0.0
-	var s := 0.0
+		raw.append(Vector3(p[0], p[1], p[2]))
 	var heads: Array[float] = []
 	for i in n:
 		var a := raw[maxi(i - 1, 0)]
@@ -144,23 +150,25 @@ func _load_traced(path: String) -> void:
 	for i in n:
 		var a := heads[maxi(i - 1, 0)]
 		var b := heads[mini(i + 1, n - 1)]
-		var ds := raw[maxi(i - 1, 0)].distance_to(raw[mini(i + 1, n - 1)])
+		var ds := Vector2(raw[maxi(i - 1, 0)].x, raw[maxi(i - 1, 0)].z).distance_to(Vector2(raw[mini(i + 1, n - 1)].x, raw[mini(i + 1, n - 1)].z))
 		curvs.append(wrapf(b - a, -PI, PI) / maxf(ds, 0.1))
 	curvs = _smooth(curvs, 2)
+	var s := 0.0
 	for i in n:
 		if i > 0:
-			var ds := raw[i].distance_to(raw[i - 1])
-			s += ds
-			var gi := clampi(i - lead - 1, 0, grades.size() - 1)
-			y += (grades[gi] if i > lead else -0.02) * ds
-		var pos := Vector3(raw[i].x, y, raw[i].z)
+			s += Vector2(raw[i].x, raw[i].z).distance_to(Vector2(raw[i - 1].x, raw[i - 1].z))
 		var dir := Vector3(cos(heads[i]), 0.0, sin(heads[i]))
-		P.append(pos)
+		P.append(raw[i])
 		D.append(dir)
 		R.append(dir.cross(Vector3.UP))
 		S.append(s)
 		K.append(curvs[i])
-		G.append(grades[clampi(i - lead - 1, 0, grades.size() - 1)] if i > lead else -0.02)
+		G.append(0.0)
+	# grade from neighbouring samples (recomputed cleanly now that S is complete)
+	for i in n:
+		var i0 := maxi(i - 1, 0)
+		var i1 := mini(i + 1, n - 1)
+		G[i] = (P[i1].y - P[i0].y) / maxf(S[i1] - S[i0], 0.5)
 	length = s
 	drop = P[0].y - P[n - 1].y
 	min_y = P[n - 1].y
@@ -247,7 +255,7 @@ func _profile(i: int) -> Array:
 	var gr := grass_r[i]
 	var e := hw + GUTTER_W
 	return [
-		[-(rail + gl), -gl * 0.3],
+		[-(rail + gl), -gl * (0.7 if traced else 0.3)],
 		[-rail, -0.03],
 		[-e, -0.03],
 		[-(hw + GUTTER_W * 0.5), -GUTTER_DEPTH],
@@ -256,7 +264,7 @@ func _profile(i: int) -> Array:
 		[hw + GUTTER_W * 0.5, -GUTTER_DEPTH],
 		[e, -0.03],
 		[rail, -0.03],
-		[rail + gr, -gr * 0.3],
+		[rail + gr, -gr * (0.7 if traced else 0.3)],
 	]
 
 
@@ -392,10 +400,12 @@ func _build_road_mesh() -> void:
 	tex.height = 256
 	tex.seamless = true
 	asphalt.albedo_texture = tex
-	asphalt.albedo_color = Color(0.22, 0.22, 0.23)
-	var concrete := _mat(Color(0.48, 0.48, 0.46))
-	var gravel := _mat(Color(0.3, 0.27, 0.22))
-	var grass := _mat(Color(0.12, 0.22, 0.1))
+	asphalt.albedo_color = Color(0.2, 0.2, 0.22)
+	asphalt.roughness = 0.42        # slightly wet night tarmac catches the headlights
+	asphalt.metallic_specular = 0.7
+	var concrete := _mat(Color(0.42, 0.42, 0.4), 0.8)
+	var gravel := _mat(Color(0.22, 0.2, 0.17))
+	var grass := _mat(Color(0.07, 0.11, 0.06))
 	# surface id per profile strip (strip k joins profile point k and k+1)
 	var strip_mat := [2, 3, 1, 1, 0, 1, 1, 3, 2]
 	var mats := [asphalt, concrete, gravel, grass]
@@ -458,37 +468,49 @@ func _strip(st: SurfaceTool, lat_a: float, lat_b: float, lift: float, filter: Ca
 
 
 func _build_markings() -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var all := func(_i: int) -> bool: return true
-	var dashed := func(i: int) -> bool: return fmod(S[i], 9.0) < 4.5
-	_strip(st, -0.07, 0.07, 0.015, dashed)
-	_strip(st, -hw + 0.12, -hw + 0.27, 0.015, all)
-	_strip(st, hw - 0.27, hw - 0.12, 0.015, all)
-	var m := _mat(Color(0.85, 0.85, 0.8), 0.7)
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	st.set_material(m)
-	var mi := MeshInstance3D.new()
-	mi.mesh = st.commit()
-	add_child(mi)
+	var yellow := SurfaceTool.new()
+	yellow.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_strip(yellow, -0.08, 0.08, 0.012, all)
+	var ym := _mat(Color(0.95, 0.72, 0.1), 0.5)
+	ym.cull_mode = BaseMaterial3D.CULL_DISABLED
+	yellow.set_material(ym)
+	var white := SurfaceTool.new()
+	white.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_strip(white, -hw + 0.12, -hw + 0.26, 0.012, all)
+	_strip(white, hw - 0.26, hw - 0.12, 0.012, all)
+	var wm := _mat(Color(0.88, 0.88, 0.85), 0.5)
+	wm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	white.set_material(wm)
+	for st in [yellow, white]:
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		add_child(mi)
 
 
 func _build_guardrails() -> void:
+	# Japanese W-beam: corrugated steel strip on round posts, painted white
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var prof := [[0.0, 0.42], [0.06, 0.49], [0.02, 0.56], [0.06, 0.63], [0.0, 0.70], [-0.02, 0.70], [-0.02, 0.42]]
 	for side in [-1.0, 1.0]:
 		for i in range(1, P.size()):
-			var lat: float = side * rail
-			var a := P[i - 1] + R[i - 1] * lat
-			var b := P[i] + R[i] * lat
-			var lo := Vector3.UP * 0.48
-			var hi := Vector3.UP * 0.8
-			var nrm: Vector3 = -R[i] * side
-			st.set_normal(nrm)
-			st.add_vertex(a + lo); st.add_vertex(b + lo); st.add_vertex(a + hi)
-			st.add_vertex(b + lo); st.add_vertex(b + hi); st.add_vertex(a + hi)
-	var rail_mat := _mat(Color(0.75, 0.76, 0.78), 0.35)
-	rail_mat.metallic = 0.6
+			for k in prof.size():
+				var k2 := (k + 1) % prof.size()
+				var lat_a: float = side * (rail - prof[k][0])
+				var lat_b: float = side * (rail - prof[k2][0])
+				var a0: Vector3 = P[i - 1] + R[i - 1] * lat_a + Vector3.UP * prof[k][1]
+				var a1: Vector3 = P[i - 1] + R[i - 1] * lat_b + Vector3.UP * prof[k2][1]
+				var b0: Vector3 = P[i] + R[i] * lat_a + Vector3.UP * prof[k][1]
+				var b1: Vector3 = P[i] + R[i] * lat_b + Vector3.UP * prof[k2][1]
+				var e := Vector2(prof[k2][0] - prof[k][0], prof[k2][1] - prof[k][1])
+				var nl := Vector2(e.y, -e.x).normalized()
+				var nrm: Vector3 = (-R[i] * side * nl.x + Vector3.UP * nl.y).normalized()
+				st.set_normal(nrm)
+				st.add_vertex(a0); st.add_vertex(b0); st.add_vertex(a1)
+				st.add_vertex(a1); st.add_vertex(b0); st.add_vertex(b1)
+	var rail_mat := _mat(Color(0.82, 0.83, 0.84), 0.3)
+	rail_mat.metallic = 0.5
 	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	st.set_material(rail_mat)
 	var mi := MeshInstance3D.new()
@@ -505,10 +527,15 @@ func _build_guardrails() -> void:
 		for side in [-1.0, 1.0]:
 			var p: Vector3 = P[i] + R[i] * (side * (rail + 0.08))
 			var basis := Basis.looking_at(D[i], Vector3.UP)
-			posts.append(Transform3D(basis, p + Vector3.UP * 0.4))
+			posts.append(Transform3D(basis, p + Vector3.UP * 0.2))
 			if int(S[i] / 4.0) % 3 == 0:
-				reflectors.append(Transform3D(basis, P[i] + R[i] * (side * (rail - 0.03)) + Vector3.UP * 0.86))
-	add_child(_multimesh(_box(Vector3(0.1, 0.8, 0.1)), posts, _mat(Color(0.6, 0.6, 0.62), 0.5)))
+				reflectors.append(Transform3D(basis, P[i] + R[i] * (side * (rail - 0.07)) + Vector3.UP * 0.56))
+	var post := CylinderMesh.new()
+	post.top_radius = 0.07
+	post.bottom_radius = 0.07
+	post.height = 1.1
+	post.radial_segments = 6
+	add_child(_multimesh(post, posts, _mat(Color(0.75, 0.75, 0.76), 0.4)))
 	var refl_mat := _mat(Color(1.0, 0.6, 0.1))
 	refl_mat.emission_enabled = true
 	refl_mat.emission = Color(1.0, 0.55, 0.1)
@@ -640,3 +667,206 @@ func _build_ground() -> void:
 	c /= P.size()
 	plane.position = Vector3(c.x, min_y - 28.0, c.z)
 	add_child(plane)
+
+
+# ---------------------------------------------------------------- terrain & roadside
+
+func _build_terrain() -> void:
+	var nx: int = terrain_info.nx
+	var nz: int = terrain_info.nz
+	var cell: float = terrain_info.cell
+	var ox: float = terrain_info.origin[0]
+	var oz: float = terrain_info.origin[1]
+	var f := FileAccess.open("res://tracks/" + terrain_info.file, FileAccess.READ)
+	var h := f.get_buffer(nx * nz * 4).to_float32_array()
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/terrain.gdshader")
+	var tile := 64
+	for tz in range(0, nz - 1, tile):
+		for tx in range(0, nx - 1, tile):
+			var w := mini(tile, nx - 1 - tx) + 1
+			var d := mini(tile, nz - 1 - tz) + 1
+			var verts := PackedVector3Array()
+			var norms := PackedVector3Array()
+			verts.resize(w * d)
+			norms.resize(w * d)
+			for j in d:
+				var gj := tz + j
+				for i in w:
+					var gi := tx + i
+					var k := gj * nx + gi
+					verts[j * w + i] = Vector3(ox + gi * cell, h[k], oz + gj * cell)
+					var hl := h[gj * nx + maxi(gi - 1, 0)]
+					var hr := h[gj * nx + mini(gi + 1, nx - 1)]
+					var hd := h[maxi(gj - 1, 0) * nx + gi]
+					var hu := h[mini(gj + 1, nz - 1) * nx + gi]
+					norms[j * w + i] = Vector3(hl - hr, 2.0 * cell, hd - hu).normalized()
+			var idx := PackedInt32Array()
+			idx.resize((w - 1) * (d - 1) * 6)
+			var c := 0
+			for j in d - 1:
+				for i in w - 1:
+					var a := j * w + i
+					idx[c] = a; idx[c + 1] = a + 1; idx[c + 2] = a + w
+					idx[c + 3] = a + 1; idx[c + 4] = a + w + 1; idx[c + 5] = a + w
+					c += 6
+			var arrays := []
+			arrays.resize(Mesh.ARRAY_MAX)
+			arrays[Mesh.ARRAY_VERTEX] = verts
+			arrays[Mesh.ARRAY_NORMAL] = norms
+			arrays[Mesh.ARRAY_INDEX] = idx
+			var mesh := ArrayMesh.new()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			var mi := MeshInstance3D.new()
+			mi.mesh = mesh
+			mi.material_override = mat
+			add_child(mi)
+	# far valley floor so nothing ever shows the void
+	var plane := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(8000, 8000)
+	plane.mesh = pm
+	plane.material_override = _mat(Color(0.03, 0.05, 0.03))
+	plane.position = Vector3(ox + nx * cell * 0.5, min_y - 60.0, oz + nz * cell * 0.5)
+	add_child(plane)
+
+
+func _cone(st: SurfaceTool, base: Vector3, r: float, height: float, col: Color, sides := 7) -> void:
+	var tip := base + Vector3.UP * height
+	for k in sides:
+		var a0 := TAU * k / sides
+		var a1 := TAU * (k + 1) / sides
+		var p0 := base + Vector3(cos(a0) * r, 0, sin(a0) * r)
+		var p1 := base + Vector3(cos(a1) * r, 0, sin(a1) * r)
+		var am := (a0 + a1) * 0.5
+		var n := Vector3(cos(am), r / height, sin(am)).normalized()
+		st.set_color(col.darkened(0.25))
+		st.set_normal(n)
+		st.add_vertex(p0)
+		st.set_color(col)
+		st.set_normal(Vector3.UP)
+		st.add_vertex(tip)
+		st.set_color(col.darkened(0.25))
+		st.set_normal(n)
+		st.add_vertex(p1)
+
+
+func _cedar_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_cone(st, Vector3(0, 0, 0), 0.28, 3.5, Color(0.2, 0.13, 0.08), 5)
+	_cone(st, Vector3(0, 2.0, 0), 2.3, 6.0, Color(0.07, 0.15, 0.08))
+	_cone(st, Vector3(0, 4.8, 0), 1.8, 5.0, Color(0.08, 0.17, 0.09))
+	_cone(st, Vector3(0, 7.6, 0), 1.2, 4.2, Color(0.09, 0.19, 0.1))
+	return st.commit()
+
+
+func _build_forest() -> void:
+	var mesh := _cedar_mesh()
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 1.0
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var chunk := 160.0
+	var buckets := {}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	for k in range(0, tree_data.size(), 4):
+		var p := Vector3(tree_data[k], tree_data[k + 1] - 0.3, tree_data[k + 2])
+		var sc: float = tree_data[k + 3] * 1.25
+		var key := Vector2i(floori(p.x / chunk), floori(p.z / chunk))
+		if not buckets.has(key):
+			buckets[key] = []
+		var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc))
+		buckets[key].append(Transform3D(b, p))
+	for key in buckets:
+		var xf: Array[Transform3D] = []
+		xf.assign(buckets[key])
+		var mmi := _multimesh(mesh, xf, mat)
+		mmi.visibility_range_end = 520.0
+		add_child(mmi)
+
+
+func _chevron_texture() -> ImageTexture:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	img.fill(Color(0.95, 0.75, 0.05))
+	for y in 64:
+		for x in 64:
+			var dx := absf(y - 32.0)
+			var u := x - dx * 0.8
+			if fmod(u + 200.0, 32.0) < 13.0 and x > 4 and x < 60:
+				img.set_pixel(x, y, Color(0.05, 0.05, 0.05))
+	return ImageTexture.create_from_image(img)
+
+
+func _build_roadside() -> void:
+	# chevron boards on the outside of every tight corner, and sodium lamps at some hairpins
+	var tex := _chevron_texture()
+	var board_mat := _mat(Color.WHITE, 0.6)
+	board_mat.albedo_texture = tex
+	board_mat.emission_enabled = true
+	board_mat.emission_texture = tex
+	board_mat.emission = Color(1, 1, 1)
+	board_mat.emission_energy_multiplier = 0.15
+	var pole_mat := _mat(Color(0.6, 0.6, 0.62), 0.4)
+	var lamp_glass := _mat(Color(1.0, 0.7, 0.35))
+	lamp_glass.emission_enabled = true
+	lamp_glass.emission = Color(1.0, 0.62, 0.25)
+	lamp_glass.emission_energy_multiplier = 4.0
+	var i := 0
+	var corner := 0
+	var n := P.size()
+	while i < n:
+		if absf(K[i]) < 1.0 / 28.0:
+			i += 1
+			continue
+		var j := i
+		while j < n and absf(K[j]) >= 1.0 / 28.0:
+			j += 1
+		var side := -signf(K[i])      # outside of the corner
+		var count := clampi((j - i) / 6, 1, 4)
+		for c in count:
+			var m := i + int((j - i) * (c + 0.5) / count)
+			var pos := P[m] + R[m] * side * (rail + 0.6)
+			var face := (-R[m] * side + D[m] * 0.6).normalized()
+			var board := MeshInstance3D.new()
+			board.mesh = _box(Vector3(0.6, 0.6, 0.04))
+			board.material_override = board_mat
+			var basis := Basis.looking_at(face, Vector3.UP)
+			if side < 0.0:
+				basis = basis.scaled(Vector3(-1, 1, 1))
+			board.transform = Transform3D(basis, pos + Vector3.UP * 1.25)
+			add_child(board)
+			var pole := MeshInstance3D.new()
+			pole.mesh = _box(Vector3(0.06, 1.0, 0.06))
+			pole.material_override = pole_mat
+			pole.position = pos + Vector3.UP * 0.5
+			add_child(pole)
+		if corner % 3 == 1 and (j - i) > 8:
+			var m := (i + j) / 2
+			var base := P[m] + R[m] * side * (rail + 1.2)
+			var post := MeshInstance3D.new()
+			post.mesh = _box(Vector3(0.14, 7.0, 0.14))
+			post.material_override = pole_mat
+			post.position = base + Vector3.UP * 3.5
+			add_child(post)
+			var arm_dir := -R[m] * side
+			var arm := MeshInstance3D.new()
+			arm.mesh = _box(Vector3(0.08, 0.08, 2.0))
+			arm.material_override = pole_mat
+			arm.transform = Transform3D(Basis.looking_at(arm_dir, Vector3.UP), base + Vector3.UP * 7.0 + arm_dir * 1.0)
+			add_child(arm)
+			var head := MeshInstance3D.new()
+			head.mesh = _box(Vector3(0.35, 0.12, 0.6))
+			head.material_override = lamp_glass
+			head.transform = Transform3D(Basis.looking_at(arm_dir, Vector3.UP), base + Vector3.UP * 6.9 + arm_dir * 1.9)
+			add_child(head)
+			var l := OmniLight3D.new()
+			l.light_color = Color(1.0, 0.65, 0.3)
+			l.light_energy = 2.2
+			l.omni_range = 24.0
+			l.omni_attenuation = 1.4
+			l.position = base + Vector3.UP * 6.4 + arm_dir * 2.0
+			add_child(l)
+		corner += 1
+		i = j
