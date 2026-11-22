@@ -185,7 +185,10 @@ def build_terrain(cid, xyz, cell=5.0, margin=220.0):
         n = zoom(n, (nz / sz[0] * 1.02, nx / sz[1] * 1.02), order=3)[:nz, :nx]
         noise += n * amp
     natural = base + noise.ravel() * np.clip(d / 140.0, 0.0, 1.0) + np.clip(d - 40.0, 0, None) * 0.08
-    t = np.clip((d - (RAIL + 1.0)) / 30.0, 0.0, 1.0)
+    # hillside above the road is cut steeply (a retaining wall goes there);
+    # the valley side falls away gently beyond the guardrail
+    width = np.where(natural > hr + 0.5, 6.0, 30.0)
+    t = np.clip((d - (RAIL + 1.0)) / width, 0.0, 1.0)
     t = t * t * (3 - 2 * t)
     h = (hr - 0.6) * (1 - t) + natural * t
     h = h.reshape(nz, nx)

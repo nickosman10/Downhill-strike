@@ -1,10 +1,12 @@
 shader_type spatial;
-render_mode diffuse_lambert;
+render_mode unshaded;
 
-// Mountain ground: dark forest floor on gentle slopes, layered rock on cut slopes.
-uniform vec3 grass_col : source_color = vec3(0.055, 0.085, 0.045);
-uniform vec3 dirt_col : source_color = vec3(0.13, 0.11, 0.08);
-uniform vec3 rock_col : source_color = vec3(0.26, 0.25, 0.235);
+// Painted night ground: undergrowth on gentle slopes, layered rock on cuts,
+// lit by a fixed moon so it matches the painted foliage.
+uniform vec3 grass_col : source_color = vec3(0.04, 0.085, 0.19);
+uniform vec3 dirt_col : source_color = vec3(0.06, 0.08, 0.17);
+uniform vec3 rock_col : source_color = vec3(0.13, 0.17, 0.3);
+uniform vec3 moon_dir = vec3(-0.35, 0.85, 0.25);
 
 varying vec3 wpos;
 varying vec3 wnorm;
@@ -24,12 +26,14 @@ void vertex() {
 }
 
 void fragment() {
-	float slope = 1.0 - wnorm.y;
-	float n = vnoise(wpos.xz * 0.12) * 0.6 + vnoise(wpos.xz * 0.8) * 0.4;
-	vec3 ground = mix(grass_col, dirt_col, smoothstep(0.35, 0.9, n));
-	float rock = smoothstep(0.22, 0.42, slope + (n - 0.5) * 0.12);
+	vec3 n = normalize(wnorm);
+	float slope = 1.0 - n.y;
+	float nz = vnoise(wpos.xz * 0.15) * 0.6 + vnoise(wpos.xz * 0.9) * 0.4;
+	vec3 ground = mix(grass_col, dirt_col, smoothstep(0.4, 0.9, nz));
+	float rock = smoothstep(0.25, 0.45, slope + (nz - 0.5) * 0.12);
 	float strata = 0.8 + 0.2 * sin(wpos.y * 2.6 + vnoise(wpos.xz * 0.3) * 5.0);
-	ALBEDO = mix(ground, rock_col * strata * (0.85 + 0.3 * n), rock);
-	ROUGHNESS = 0.95;
-	SPECULAR = 0.2;
+	vec3 base = mix(ground, rock_col * strata, rock);
+	float l = dot(n, normalize(moon_dir)) + (nz - 0.5) * 0.3;
+	float shade = mix(0.55, 1.0, smoothstep(0.1, 0.35, l)) + smoothstep(0.75, 0.85, l) * 0.35;
+	ALBEDO = base * shade;
 }

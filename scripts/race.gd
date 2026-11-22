@@ -50,7 +50,7 @@ func _ready() -> void:
 
 	cam = ChaseCamera.new()
 	cam.car = car
-	cam.far = 900.0
+	cam.far = 7000.0
 	add_child(cam)
 	cam.current = true
 	cam.snap()
@@ -82,19 +82,21 @@ func _build_environment(dawn: bool) -> void:
 		light.light_energy = 1.0
 		light.rotation = Vector3(deg_to_rad(-14.0), deg_to_rad(40.0), 0)
 	else:
-		sky_mat.sky_top_color = Color(0.008, 0.012, 0.035)
-		sky_mat.sky_horizon_color = Color(0.06, 0.08, 0.15)
-		sky_mat.ground_horizon_color = Color(0.03, 0.035, 0.06)
-		sky_mat.ground_bottom_color = Color(0.0, 0.0, 0.0)
-		env.ambient_light_color = Color(0.3, 0.38, 0.6)
-		env.ambient_light_energy = 0.55
-		env.fog_light_color = Color(0.035, 0.05, 0.1)
-		env.fog_density = 0.006
-		light.light_color = Color(0.55, 0.62, 0.9)
-		light.light_energy = 0.45
-		light.rotation = Vector3(deg_to_rad(-50.0), deg_to_rad(-30.0), 0)
+		# First Stage night: everything washed in deep moonlit blue
+		env.ambient_light_color = Color(0.25, 0.38, 0.75)
+		env.ambient_light_energy = 0.7
+		env.fog_light_color = Color(0.04, 0.08, 0.2)
+		env.fog_density = 0.0045
+		light.light_color = Color(0.5, 0.65, 1.0)
+		light.light_energy = 0.75
+		light.rotation = Vector3(deg_to_rad(-40.0), deg_to_rad(150.0), 0)
 	var sky := Sky.new()
-	sky.sky_material = sky_mat
+	if dawn:
+		sky.sky_material = sky_mat
+	else:
+		var night := ShaderMaterial.new()
+		night.shader = load("res://shaders/night_sky.gdshader")
+		sky.sky_material = night
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR

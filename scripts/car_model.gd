@@ -229,12 +229,8 @@ func _build_body_mesh(paint: Material, lower: Material, glass: Material, trim: M
 				# flat glass panels catch reflections like the anime CG
 				var fn := (b - a).cross(c - a).normalized()
 				na = fn; nb = fn; nc = fn; nd = fn
-			st.set_normal(na); st.add_vertex(a)
-			st.set_normal(nb); st.add_vertex(b)
-			st.set_normal(nc); st.add_vertex(c)
-			st.set_normal(nb); st.add_vertex(b)
-			st.set_normal(nd); st.add_vertex(d)
-			st.set_normal(nc); st.add_vertex(c)
+			_tri(st, a, b, c, na, nb, nc)
+			_tri(st, b, d, c, nb, nd, nc)
 	# end caps
 	for cap in [[0, Vector3.FORWARD], [rings.size() - 1, Vector3.BACK]]:
 		var ring: PackedVector3Array = rings[cap[0]]
@@ -248,17 +244,33 @@ func _build_body_mesh(paint: Material, lower: Material, glass: Material, trim: M
 			var p1 := ring[(k + 1) % rn]
 			var reg := 1 if (p0.y + p1.y) * 0.5 < maxf(_shape.panda, 0.45) else 0
 			st = tools[reg]
-			st.set_normal(cap[1])
-			if cap[0] == 0:
-				st.add_vertex(cen); st.add_vertex(p0); st.add_vertex(p1)
-			else:
-				st.add_vertex(cen); st.add_vertex(p1); st.add_vertex(p0)
+			var cn: Vector3 = cap[1]
+			_tri(st, cen, p0, p1, cn, cn, cn)
 	var mesh := ArrayMesh.new()
 	for st in tools:
 		st.commit(mesh)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	return mi
+
+
+## Emit a triangle so it faces outward: Godot treats clockwise-from-outside
+## as the front face, and the normals must point away from the body.
+func _tri(st: SurfaceTool, p0: Vector3, p1: Vector3, p2: Vector3, n0: Vector3, n1: Vector3, n2: Vector3) -> void:
+	var cen := (p0 + p1 + p2) / 3.0
+	var out := cen - Vector3(0.0, 0.62, clampf(cen.z, -1.6, 1.6))
+	var fn := (p1 - p0).cross(p2 - p0)
+	if fn.length_squared() < 1e-12:
+		return
+	if fn.dot(out) > 0.0:
+		var t := p1; p1 = p2; p2 = t
+		var tn := n1; n1 = n2; n2 = tn
+	for pair in [[p0, n0], [p1, n1], [p2, n2]]:
+		var n: Vector3 = pair[1]
+		if n.dot(out) < 0.0:
+			n = -n
+		st.set_normal(n)
+		st.add_vertex(pair[0])
 
 
 func surface_y(z: float, x := 0.0) -> float:

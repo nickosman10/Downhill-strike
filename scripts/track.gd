@@ -45,12 +45,12 @@ func build(c: Dictionary) -> void:
 	_build_road_mesh()
 	_build_markings()
 	_build_guardrails()
-	_build_roadside()
 	_build_start_finish()
 	if traced:
 		_build_terrain()
-		_build_forest()
+		Scenery.new().build(self)
 	else:
+		_build_roadside()
 		_build_trees()
 		_build_ground()
 
@@ -621,6 +621,18 @@ func _build_start_finish() -> void:
 			lm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		line.material_override = lm
 		add_child(line)
+		if traced:
+			var paint := Label3D.new()
+			paint.text = "GOAL" if data[2] else "START"
+			paint.font_size = 160
+			paint.pixel_size = 0.012
+			paint.modulate = Color(0.9, 0.9, 0.88)
+			paint.outline_size = 0
+			paint.double_sided = false
+			var lie := Basis.looking_at(Vector3.DOWN, dir)
+			paint.transform = Transform3D(lie, center + Vector3.UP * 0.02 + dir * 3.0)
+			add_child(paint)
+			continue
 		# gantry
 		var pole_mat := _mat(Color(0.35, 0.35, 0.38), 0.5)
 		for side in [-1.0, 1.0]:
@@ -671,6 +683,29 @@ func _build_ground() -> void:
 
 # ---------------------------------------------------------------- terrain & roadside
 
+var terrain_h := PackedFloat32Array()
+
+
+## Bilinear terrain height (traced courses); falls back to the road height.
+func terrain_height(x: float, z: float) -> float:
+	if terrain_h.is_empty():
+		return min_y
+	var nx: int = terrain_info.nx
+	var nz: int = terrain_info.nz
+	var cell: float = terrain_info.cell
+	var fx := clampf((x - terrain_info.origin[0]) / cell, 0.0, nx - 1.001)
+	var fz := clampf((z - terrain_info.origin[1]) / cell, 0.0, nz - 1.001)
+	var i := int(fx)
+	var j := int(fz)
+	var a := fx - i
+	var b := fz - j
+	var h00 := terrain_h[j * nx + i]
+	var h10 := terrain_h[j * nx + i + 1]
+	var h01 := terrain_h[(j + 1) * nx + i]
+	var h11 := terrain_h[(j + 1) * nx + i + 1]
+	return lerpf(lerpf(h00, h10, a), lerpf(h01, h11, a), b)
+
+
 func _build_terrain() -> void:
 	var nx: int = terrain_info.nx
 	var nz: int = terrain_info.nz
@@ -679,6 +714,7 @@ func _build_terrain() -> void:
 	var oz: float = terrain_info.origin[1]
 	var f := FileAccess.open("res://tracks/" + terrain_info.file, FileAccess.READ)
 	var h := f.get_buffer(nx * nz * 4).to_float32_array()
+	terrain_h = h
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
 	var tile := 64
