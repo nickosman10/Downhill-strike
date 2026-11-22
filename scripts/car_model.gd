@@ -231,6 +231,13 @@ func _build() -> void:
 			wheels.append(pivot)
 			wheel_spin.append(spin)
 			wheel_base_y.append(WHEEL_R)
+	# soft fill light so the car body reads at night
+	var fill := OmniLight3D.new()
+	fill.position = Vector3(0, 2.6, 0.8)
+	fill.omni_range = 5.5
+	fill.light_energy = 0.9
+	fill.light_color = Color(1.0, 0.95, 0.88)
+	add_child(fill)
 	set_lights(true, true)
 
 

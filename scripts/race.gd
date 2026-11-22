@@ -87,11 +87,11 @@ func _build_environment(dawn: bool) -> void:
 		sky_mat.ground_horizon_color = Color(0.03, 0.035, 0.06)
 		sky_mat.ground_bottom_color = Color(0.0, 0.0, 0.0)
 		env.ambient_light_color = Color(0.35, 0.4, 0.6)
-		env.ambient_light_energy = 0.35
+		env.ambient_light_energy = 0.6
 		env.fog_light_color = Color(0.03, 0.04, 0.08)
-		env.fog_density = 0.012
+		env.fog_density = 0.009
 		light.light_color = Color(0.55, 0.62, 0.9)
-		light.light_energy = 0.22
+		light.light_energy = 0.45
 		light.rotation = Vector3(deg_to_rad(-50.0), deg_to_rad(-30.0), 0)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat

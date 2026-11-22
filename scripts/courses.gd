@@ -16,7 +16,8 @@ static func all() -> Array:
 			"id": "haruna",
 			"name": "Mt. Haruna",
 			"region": "Gunma",
-			"blurb": "Lakeside start, fast sweepers, then the famous run of five consecutive hairpins. Deep gutters line the inside of the hairpins.",
+			"data": "res://tracks/haruna.json",
+			"blurb": "The home mountain. Lakeside wiggles at the top, a tight switchback cluster, long fast runs, then stacked hairpins all the way down. Deep gutters line the inside of the hairpins.",
 			"width": 6.6, "grade": -7.0, "time": "night",
 			"rival": {"name": "Haruto Inaba", "car": "coupe", "color": Color(0.95, 0.85, 0.1), "skill": 1.0},
 			"segments": [

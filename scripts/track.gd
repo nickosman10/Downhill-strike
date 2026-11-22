@@ -34,7 +34,7 @@ func build(c: Dictionary) -> void:
 	course = c
 	hw = c.get("width", 6.6) * 0.5
 	rail = hw + GUTTER_W + SHOULDER
-	_generate_centerline(c.segments, c.get("grade", -7.0))
+	build_centerline(c)
 	_compute_grass()
 	finish_s = length - 25.0
 	_build_road_mesh()
@@ -46,6 +46,13 @@ func build(c: Dictionary) -> void:
 
 
 # ---------------------------------------------------------------- geometry
+
+func build_centerline(c: Dictionary) -> void:
+	course = c
+	if c.has("data"):
+		_load_traced(c.data)
+	else:
+		_generate_centerline(c.segments, c.get("grade", -7.0))
 
 func _generate_centerline(segs: Array, default_grade: float) -> void:
 	var heads: Array[float] = []
@@ -104,6 +111,59 @@ func _generate_centerline(segs: Array, default_grade: float) -> void:
 	length = s
 	drop = P[0].y - P[P.size() - 1].y
 	min_y = P[P.size() - 1].y
+
+
+## Centerline traced from a real course map (see tools/trace_course.py).
+func _load_traced(path: String) -> void:
+	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	var pts: Array = data.points
+	var grades: Array[float] = []
+	for g in data.grade:
+		grades.append(float(g) / 100.0)
+	grades = _smooth(grades, 12)
+	hairpins = int(data.get("hairpins", 0))
+	# flat lead-in before the first traced point, along the initial heading
+	var p0 := Vector3(pts[0][0], 0.0, pts[0][1])
+	var p1 := Vector3(pts[1][0], 0.0, pts[1][1])
+	var d0 := (p1 - p0).normalized()
+	var raw: Array[Vector3] = []
+	var lead := int(LEAD_IN / 2.0)
+	for k in range(lead, 0, -1):
+		raw.append(p0 - d0 * (k * 2.0))
+	for p in pts:
+		raw.append(Vector3(p[0], 0.0, p[1]))
+	var n := raw.size()
+	var y := 0.0
+	var s := 0.0
+	var heads: Array[float] = []
+	for i in n:
+		var a := raw[maxi(i - 1, 0)]
+		var b := raw[mini(i + 1, n - 1)]
+		heads.append(atan2(b.z - a.z, b.x - a.x))
+	var curvs: Array[float] = []
+	for i in n:
+		var a := heads[maxi(i - 1, 0)]
+		var b := heads[mini(i + 1, n - 1)]
+		var ds := raw[maxi(i - 1, 0)].distance_to(raw[mini(i + 1, n - 1)])
+		curvs.append(wrapf(b - a, -PI, PI) / maxf(ds, 0.1))
+	curvs = _smooth(curvs, 2)
+	for i in n:
+		if i > 0:
+			var ds := raw[i].distance_to(raw[i - 1])
+			s += ds
+			var gi := clampi(i - lead - 1, 0, grades.size() - 1)
+			y += (grades[gi] if i > lead else -0.02) * ds
+		var pos := Vector3(raw[i].x, y, raw[i].z)
+		var dir := Vector3(cos(heads[i]), 0.0, sin(heads[i]))
+		P.append(pos)
+		D.append(dir)
+		R.append(dir.cross(Vector3.UP))
+		S.append(s)
+		K.append(curvs[i])
+		G.append(grades[clampi(i - lead - 1, 0, grades.size() - 1)] if i > lead else -0.02)
+	length = s
+	drop = P[0].y - P[n - 1].y
+	min_y = P[n - 1].y
 
 
 func _smooth(arr: Array[float], radius: int) -> Array[float]:

@@ -12,14 +12,14 @@ var info: RichTextLabel
 
 func _ready() -> void:
 	courses = Courses.all()
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
 	bg.color = Color(0.04, 0.045, 0.07)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
 	var margin := MarginContainer.new()
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 36)
 	add_child(margin)
@@ -106,7 +106,7 @@ func _refresh() -> void:
 	var c: Dictionary = courses[Game.course_index]
 	var t := Track.new()   # geometry only, for stats
 	t.hw = c.width * 0.5
-	t._generate_centerline(c.segments, c.grade)
+	t.build_centerline(c)
 	var best := Game.best_time(c.id, Game.mode)
 	var mode_text := ""
 	match Game.mode:

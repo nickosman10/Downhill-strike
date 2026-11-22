@@ -12,7 +12,7 @@ var _dir := Vector3.FORWARD
 func snap() -> void:
 	var f := Vector3(cos(car.yaw), 0, sin(car.yaw))
 	_dir = f
-	global_position = car.global_position - f * 6.5 + Vector3.UP * 2.4
+	global_position = _keep_over_road(car.global_position - f * 6.5 + Vector3.UP * 2.4)
 	_look = car.global_position + Vector3.UP * 0.9
 	look_at(_look + f * 3.0, Vector3.UP)
 
@@ -35,6 +35,7 @@ func follow(dt: float) -> void:
 			var dist := 6.5 if mode == 0 else 9.5
 			var height := 2.3 if mode == 0 else 3.4
 			var want := cp - _dir * dist + Vector3.UP * height
+			want = _keep_over_road(want)
 			global_position = global_position.lerp(want, 1.0 - exp(-9.0 * dt))
 			_look = _look.lerp(cp + Vector3.UP * 0.9 + _dir * 2.0, 1.0 - exp(-14.0 * dt))
 			look_at(_look, Vector3.UP)
@@ -44,3 +45,15 @@ func follow(dt: float) -> void:
 			global_position = cp + b.y * 1.05 - b.z * 0.3
 			look_at(global_position - b.z * 10.0 + b.y * 0.2, b.y)
 			fov = 78.0
+
+
+## Keep the camera above the road corridor so it never ends up inside trees.
+func _keep_over_road(p: Vector3) -> Vector3:
+	var tr: Track = car.track
+	var proj := tr.project(p, car.idx)
+	var lim := tr.rail + 0.6
+	if absf(proj.lat) > lim:
+		var r3: Vector3 = proj.right
+		p -= r3 * (absf(proj.lat) - lim) * signf(proj.lat)
+	p.y = maxf(p.y, tr.surface_height(proj) + 1.2)
+	return p
