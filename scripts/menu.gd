@@ -242,6 +242,12 @@ func _ready() -> void:
 	help.add_theme_color_override("font_color", Color(0.6, 0.66, 0.8))
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right.add_child(help)
+	var credit := Label.new()
+	credit.text = "Mt. Haruna road & terrain: © OpenStreetMap contributors (ODbL), AWS Terrain Tiles"
+	credit.add_theme_font_size_override("font_size", 11)
+	credit.add_theme_color_override("font_color", Color(0.5, 0.55, 0.65))
+	credit.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right.add_child(credit)
 
 	Music.now_playing.connect(func(_t): _refresh_music())
 	course_list.select(Game.course_index)

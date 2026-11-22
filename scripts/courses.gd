@@ -17,7 +17,7 @@ static func all() -> Array:
 			"name": "Mt. Haruna",
 			"region": "Gunma",
 			"data": "res://tracks/haruna.json",
-			"blurb": "The home mountain. Lakeside wiggles at the top, a tight switchback cluster, long fast runs, then stacked hairpins all the way down. Deep gutters line the inside of the hairpins.",
+			"blurb": "The real Route 33, from the pass by Lake Haruna down to the hot-spring town of Ikaho. Built from OpenStreetMap and real elevation data. Deep gutters line the inside of the hairpins.",
 			"width": 7.4, "grade": -7.0, "time": "night",
 			"rival": {"name": "Haruto Inaba", "car": "coupe", "color": Color(0.95, 0.85, 0.1), "skill": 1.0},
 			"segments": [

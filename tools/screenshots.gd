@@ -82,7 +82,7 @@ func _run() -> void:
 	race.hud.set_center("")
 	race.hud.popups.visible = false   # teleporting between spots trips the crash/score popups
 	var spots := [[500.0, "03_lakeside", false], [1500.0, "04_switchbacks", false],
-		[3200.0, "05_drift", true], [6950.0, "06_final_hairpins", false]]
+		[3200.0, "05_drift", true], [6950.0, "06_final_hairpins", false], [7450.0, "15_ikaho", false]]
 	for spot in spots:
 		await _shoot_at(race, spot[0], spot[1], spot[2])
 	# city view: a stretch heading straight for the valley
@@ -96,6 +96,19 @@ func _run() -> void:
 			best_d = dd
 			best_i = i
 	await _shoot_at(race, tr.S[best_i] - 40.0, "11_city_view", false)
+	# rock-fall protection on the cut slopes
+	for spot in [[2143.0, -1.0, "13_rockfall_a"], [5031.0, 1.0, "14_rockfall_b"]]:
+		var si := tr.index_at_s(spot[0])
+		var sd: float = spot[1]
+		var ccam := Camera3D.new()
+		race.add_child(ccam)
+		ccam.global_position = tr.P[si] - tr.R[si] * sd * 2.5 - tr.D[si] * 14.0 + Vector3.UP * 2.0
+		ccam.look_at(tr.P[si] + tr.R[si] * sd * 9.0 + tr.D[si] * 10.0 + Vector3.UP * 4.0, Vector3.UP)
+		ccam.current = true
+		await _frames(4)
+		await _save(spot[2])
+		ccam.queue_free()
+	race.cam.current = true
 	# debug: high view toward the valley
 	var dc := Camera3D.new()
 	race.add_child(dc)

@@ -50,7 +50,7 @@ func _ready() -> void:
 
 	cam = ChaseCamera.new()
 	cam.car = car
-	cam.far = 12000.0
+	cam.far = 20000.0
 	add_child(cam)
 	cam.current = true
 	cam.snap()
@@ -92,7 +92,7 @@ static func build_environment(parent: Node, dawn: bool) -> void:
 		env.ambient_light_color = Color(0.25, 0.38, 0.75)
 		env.ambient_light_energy = 0.7
 		env.fog_light_color = Color(0.04, 0.08, 0.2)
-		env.fog_density = 0.0045
+		env.fog_density = 0.0016
 		light.light_color = Color(0.5, 0.65, 1.0)
 		light.light_energy = 0.75
 		light.rotation = Vector3(deg_to_rad(-40.0), deg_to_rad(150.0), 0)

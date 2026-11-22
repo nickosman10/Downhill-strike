@@ -17,6 +17,7 @@ func build(track: Track) -> void:
 	foliage_mat = ShaderMaterial.new()
 	foliage_mat.shader = load("res://shaders/foliage.gdshader")
 	_walls()
+	_slope_protection()
 	_trees()
 	_bushes()
 	_poles()
@@ -24,11 +25,14 @@ func build(track: Track) -> void:
 	_rumble_strips()
 	_ridges()
 	_city()
-	_street_lamps()
-	_summit_area()
+	if t.features.is_empty():
+		_street_lamps()
+		_summit_area()
+		_village()
+	else:
+		_real_features()
 	_curve_signs_and_mirrors()
 	_skid_marks()
-	_village()
 
 
 func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
@@ -216,13 +220,24 @@ func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, uv0:
 
 
 func _panel_texture() -> ImageTexture:
-	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
-	for y in 64:
-		for x in 64:
-			var v := 0.85 + 0.15 * sin(x * 0.7 + y * 1.3) * 0.2
-			if x % 32 < 2 or y % 32 < 2:
-				v = 0.55
-			img.set_pixel(x, y, Color(v, v, v))
+	# kenchi-ishi: stacked stone blocks laid diagonally, typical of Japanese
+	# mountain-road retaining walls
+	var img := Image.create(128, 128, false, Image.FORMAT_RGB8)
+	var rng2 := RandomNumberGenerator.new()
+	rng2.seed = 5
+	var tones := []
+	for k in 64:
+		tones.append(rng2.randf_range(0.72, 0.98))
+	for y in 128:
+		for x in 128:
+			var u := (x + y) / 128.0 * 4.0
+			var v := (x - y + 128) / 128.0 * 4.0
+			var fu := u - floorf(u)
+			var fv := v - floorf(v)
+			var mortar := fu < 0.08 or fv < 0.08
+			var tone: float = tones[(int(u) * 7 + int(v) * 13) % 64]
+			var g := 0.42 if mortar else tone * (0.9 + 0.1 * sin(x * 0.9) * sin(y * 1.1))
+			img.set_pixel(x, y, Color(g, g, g * 1.02))
 	img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
 
@@ -246,6 +261,8 @@ func _trees() -> void:
 	var cols := [[], [], []]
 	for k in range(0, t.tree_data.size(), 4):
 		var p := Vector3(t.tree_data[k], t.tree_data[k + 1] - 0.4, t.tree_data[k + 2])
+		if t.dist_to_road(p) < t.rail + 26.0 and p.y > t.P[t.nearest_index(p)].y + 3.0:
+			continue    # protected cut slope: concrete frames / netting, no trees
 		var sc: float = t.tree_data[k + 3]
 		var kind := 2 if rng.randf() < 0.3 else rng.randi_range(0, 1)
 		var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * rng.randf_range(0.85, 1.3), sc) * 1.3)
@@ -410,6 +427,8 @@ func _rumble_strips() -> void:
 
 
 func _ridges() -> void:
+	if not t.far_info.is_empty():
+		return    # real mountains from the elevation data already fill the horizon
 	# layered mountain silhouettes on the horizon, fading into the night haze
 	var cen := Vector3.ZERO
 	for p in t.P:
@@ -477,13 +496,19 @@ func _city() -> void:
 	var xf: Array = []
 	var cols: Array = []
 	var palette := [Color(1.0, 0.78, 0.45), Color(1.0, 0.9, 0.7), Color(0.75, 0.85, 1.0), Color(1.0, 0.55, 0.3)]
-	# a big town straight ahead and smaller ones off to the sides
-	var towns := [[away * 3400.0, 1300.0, 5200], [away * 2600.0 + side * 2200.0, 700.0, 1800],
-		[away * 2900.0 - side * 2400.0, 800.0, 2000], [away * 4600.0 + side * 900.0, 1100.0, 2400]]
+	# towns: real positions from the course data, or invented ones ahead
+	var towns: Array = []
+	if not t.towns_data.is_empty():
+		for tw in t.towns_data:
+			towns.append([Vector3(tw.x, 0, tw.z), float(tw.r), int(tw.n), true])
+	else:
+		towns = [[finish + away * 3400.0, 1300.0, 5200, false], [finish + away * 2600.0 + side * 2200.0, 700.0, 1800, false],
+			[finish + away * 2900.0 - side * 2400.0, 800.0, 2000, false], [finish + away * 4600.0 + side * 900.0, 1100.0, 2400, false]]
 	for town in towns:
-		var c: Vector3 = finish + town[0]
+		var c: Vector3 = town[0]
 		var radius: float = town[1]
 		var count: int = town[2]
+		var real: bool = town[3]
 		var ang := rng.randf() * PI
 		var u := Vector3(cos(ang), 0, sin(ang))
 		var v := u.cross(Vector3.UP)
@@ -498,8 +523,13 @@ func _city() -> void:
 				lu = p.dot(u)
 				lv = snappedf(lv, 60.0)
 			p = u * lu + v * lv
-			p.y = floor_y + rng.randf_range(0.0, 6.0)
-			var sz := rng.randf_range(9.0, 18.0)
+			if real:
+				if t.dist_to_road(p) < 40.0:
+					continue
+				p.y = t.far_height(p.x, p.z) + 4.0 + rng.randf_range(0.0, 6.0)
+			else:
+				p.y = floor_y + rng.randf_range(0.0, 6.0)
+			var sz := rng.randf_range(9.0, 18.0) * (1.0 + c.distance_to(finish) / 8000.0)
 			# billboards ignore multimesh instance positions, so face each light at the pass instead
 			var to_pass := (finish - p)
 			to_pass.y = 0.0
@@ -507,6 +537,8 @@ func _city() -> void:
 			var col: Color = palette[rng.randi() % palette.size()]
 			cols.append(col * rng.randf_range(0.45, 0.95))
 	_mm(quad, xf, m, cols)
+	if not t.towns_data.is_empty():
+		return
 	# warm haze over the towns
 	var glow := MeshInstance3D.new()
 	var gq := QuadMesh.new()
@@ -818,3 +850,282 @@ func _village() -> void:
 		if placed == 2:
 			_vending(t.P[i] + t.R[i] * side * (t.rail + 2.5), face)
 		placed += 1
+
+
+# ------------------------------------------------------------------ rock-fall protection
+
+func _lattice_texture() -> ImageTexture:
+	# concrete grid frame on a cut slope, soil and weeds in the cells
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	for y in 64:
+		for x in 64:
+			var beam := (x % 32) < 5 or (y % 32) < 5
+			var c := Color(0.5, 0.53, 0.58) if beam else Color(0.08, 0.13, 0.12).lerp(Color(0.12, 0.2, 0.14), float((x * 7 + y * 13) % 17) / 17.0)
+			if beam and ((x % 32) == 4 or (y % 32) == 4):
+				c = Color(0.32, 0.34, 0.38)
+			img.set_pixel(x, y, c)
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+
+func _net_texture() -> ImageTexture:
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	for y in 32:
+		for x in 32:
+			var on := (x + y) % 16 == 0 or (x - y + 64) % 16 == 0
+			img.set_pixel(x, y, Color(0.7, 0.74, 0.8, 1.0) if on else Color(0, 0, 0, 0))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+
+func _slope_protection() -> void:
+	# Where the real hillside rises tall and steep beside the road, cover it
+	# like Japanese mountain roads do: concrete lattice frames or wire rock
+	# netting, with a rock-fall catch fence along the bottom.
+	# painted moonlit look so the frames read at night, like the anime BGs
+	var lattice := _mat(Color(0.55, 0.68, 1.0), 0.9)
+	lattice.albedo_texture = _lattice_texture()
+	lattice.cull_mode = BaseMaterial3D.CULL_DISABLED
+	lattice.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var net := _mat(Color(0.6, 0.72, 1.0), 0.6)
+	net.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	net.albedo_texture = _net_texture()
+	net.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	net.alpha_scissor_threshold = 0.4
+	net.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var lst := SurfaceTool.new()
+	lst.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var nst := SurfaceTool.new()
+	nst.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var fst := SurfaceTool.new()
+	fst.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var fence_mat := _mat(Color.WHITE, 0.6)
+	fence_mat.albedo_texture = _net_texture()
+	fence_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	fence_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var post_xf: Array = []
+	var n := t.P.size()
+	var lats := [1.3, 4.0, 7.0, 10.5, 14.5, 19.0, 24.0]
+	for side: float in [-1.0, 1.0]:
+		var prev: Array = []
+		var prev_ok := false
+		var run_kind := 0
+		for i in range(0, n, 2):
+			var high := t.terrain_height(t.P[i].x + t.R[i].x * side * (t.rail + 14.0), t.P[i].z + t.R[i].z * side * (t.rail + 14.0)) - t.P[i].y
+			var ok := high > 7.0 and t.dist_to_road(t.P[i] + t.R[i] * side * (t.rail + 14.0)) > t.rail + 4.0
+			var row: Array = []
+			if ok:
+				for l in lats:
+					var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + l)
+					var hy := t.terrain_height(p.x, p.z)
+					p.y = maxf(hy, t.P[i].y + 0.2) + 0.15
+					row.append(p)
+			if ok and not prev_ok:
+				run_kind = int(t.S[i] / 90.0) % 2
+			if ok and prev_ok:
+				var st: SurfaceTool = lst if run_kind == 0 else nst
+				var u0 := t.S[i - 2] / 6.0
+				var u1 := t.S[i] / 6.0
+				for k in lats.size() - 1:
+					var a: Vector3 = prev[k]
+					var b: Vector3 = row[k]
+					var c: Vector3 = row[k + 1]
+					var d: Vector3 = prev[k + 1]
+					var v0 := float(lats[k]) / 6.0
+					var v1 := float(lats[k + 1]) / 6.0
+					var nrm := (b - a).cross(d - a).normalized()
+					if nrm.y < 0.0:
+						nrm = -nrm
+					st.set_normal(nrm)
+					st.set_uv(Vector2(u0, v0)); st.add_vertex(a)
+					st.set_uv(Vector2(u1, v0)); st.add_vertex(b)
+					st.set_uv(Vector2(u1, v1)); st.add_vertex(c)
+					st.set_uv(Vector2(u0, v0)); st.add_vertex(a)
+					st.set_uv(Vector2(u1, v1)); st.add_vertex(c)
+					st.set_uv(Vector2(u0, v1)); st.add_vertex(d)
+				# catch fence at the foot of netted slopes
+				if run_kind == 1:
+					var fa: Vector3 = prev[0] + Vector3.UP * 0.0
+					var fb: Vector3 = row[0]
+					var up := Vector3.UP * 2.6
+					fst.set_normal(-t.R[i] * side)
+					fst.set_uv(Vector2(u0, 1)); fst.add_vertex(fa)
+					fst.set_uv(Vector2(u1, 1)); fst.add_vertex(fb)
+					fst.set_uv(Vector2(u1, 0)); fst.add_vertex(fb + up)
+					fst.set_uv(Vector2(u0, 1)); fst.add_vertex(fa)
+					fst.set_uv(Vector2(u1, 0)); fst.add_vertex(fb + up)
+					fst.set_uv(Vector2(u0, 0)); fst.add_vertex(fa + up)
+					if int(t.S[i] / 4.0) != int(t.S[i - 2] / 4.0):
+						post_xf.append(Transform3D(Basis(), fb + Vector3.UP * 1.3))
+			prev = row
+			prev_ok = ok
+	for pair in [[lst, lattice], [nst, net], [fst, fence_mat]]:
+		var st2: SurfaceTool = pair[0]
+		st2.set_material(pair[1])
+		var mi := MeshInstance3D.new()
+		mi.mesh = st2.commit()
+		_add(mi)
+	var post := _boxm(Vector3(0.12, 2.7, 0.12))
+	_mm(post, post_xf, _mat(Color(0.5, 0.52, 0.56), 0.5))
+
+
+# ------------------------------------------------------------------ real-world features (OpenStreetMap)
+
+func _poly_y(poly: Array) -> float:
+	var y := INF
+	for p in poly:
+		y = minf(y, t.terrain_height(p[0], p[1]))
+	return y
+
+
+func _real_features() -> void:
+	var walls := [Color(0.72, 0.7, 0.64), Color(0.62, 0.64, 0.68), Color(0.78, 0.74, 0.66), Color(0.55, 0.5, 0.45)]
+	var roofs := [Color(0.22, 0.26, 0.34), Color(0.36, 0.2, 0.16), Color(0.2, 0.22, 0.25), Color(0.3, 0.32, 0.3)]
+	var win := _emissive(Color(1.0, 0.82, 0.5), 1.6)
+	# buildings: real footprints extruded, low hip roof, some lit windows
+	for b in t.features.get("buildings", []):
+		var poly: Array = b.poly
+		if poly.size() < 4:
+			continue
+		var base := _poly_y(poly) - 0.3
+		var h: float = clampf(float(b.h), 3.0, 30.0)
+		var k := rng.randi() % walls.size()
+		_extrude(poly, base, h, _mat(walls[k], 0.85), _mat(roofs[k], 0.7), win)
+	# parking lots: flat asphalt on their real outline, with a lamp
+	var lot_mat := _mat(Color(0.15, 0.16, 0.19), 0.8)
+	for poly in t.features.get("parking", []):
+		var pts := PackedVector2Array()
+		for p in poly:
+			pts.append(Vector2(p[0], p[1]))
+		if pts.size() > 3 and pts[0] == pts[pts.size() - 1]:
+			pts.remove_at(pts.size() - 1)
+		var tris := Geometry2D.triangulate_polygon(pts)
+		if tris.is_empty():
+			continue
+		var y := _poly_y(poly) + 0.05
+		for p in poly:
+			y = maxf(y, t.terrain_height(p[0], p[1]) - 1.5)
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.set_normal(Vector3.UP)
+		for k in range(0, tris.size(), 3):
+			for m in [0, 2, 1]:
+				var v := pts[tris[k + m]]
+				st.add_vertex(Vector3(v.x, y, v.y))
+		st.set_material(lot_mat)
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		_add(mi)
+		var c := Vector2.ZERO
+		for v in pts:
+			c += v
+		c /= pts.size()
+		var to_road: Vector3 = t.P[t.nearest_index(Vector3(c.x, y, c.y))] - Vector3(c.x, y, c.y)
+		to_road.y = 0.0
+		_lamp(Vector3(c.x, y, c.y), to_road.normalized() if to_road.length() > 0.1 else Vector3.FORWARD, false)
+	# roadside points
+	for f in t.features.get("points", []):
+		var i := int(f.i)
+		var side: float = f.side
+		var face: Vector3 = -t.R[i] * side
+		var at: Vector3 = t.P[i] + t.R[i] * side * (t.rail + 1.5)
+		at.y = t.P[i].y
+		match f.kind:
+			"bus_stop":
+				_bus_stop(at, face)
+			"toilets":
+				_building(at - face * 4.0, face, Vector3(4.0, 2.8, 3.0), Color(0.75, 0.73, 0.68), Color(0.3, 0.3, 0.32))
+				_lamp(at, face, false)
+			"viewpoint":
+				_lamp(at, face, false)
+				_vending(at - face * 2.0 + t.D[i] * 3.0, face)
+			"street_lamp":
+				_lamp(at, face, true)
+	# bridges: concrete parapets instead of guardrails
+	var para := _mat(Color(0.55, 0.58, 0.64), 0.8)
+	for br in t.features.get("bridges", []):
+		for side: float in [-1.0, 1.0]:
+			for i in range(int(br[0]), int(br[1])):
+				var a: Vector3 = t.P[i] + t.R[i] * side * (t.rail - 0.1)
+				var b: Vector3 = t.P[i + 1] + t.R[i + 1] * side * (t.rail - 0.1)
+				var mid := (a + b) * 0.5
+				var len := a.distance_to(b)
+				_piece(_boxm(Vector3(0.3, 0.9, len + 0.05)), para, Transform3D(Basis.looking_at(b - a, Vector3.UP), mid + Vector3.UP * 0.45))
+
+
+func _bus_stop(at: Vector3, face: Vector3) -> void:
+	var pole := CylinderMesh.new()
+	pole.top_radius = 0.04
+	pole.bottom_radius = 0.06
+	pole.height = 2.2
+	_piece(pole, _mat(Color(0.7, 0.7, 0.72), 0.4), Transform3D(Basis(), at + Vector3.UP * 1.1))
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.3
+	disc.bottom_radius = 0.3
+	disc.height = 0.04
+	var b := Basis.looking_at(face, Vector3.UP) * Basis(Vector3.RIGHT, PI / 2)
+	_piece(disc, _emissive(Color(0.9, 0.9, 0.95), 0.6), Transform3D(b, at + Vector3.UP * 2.25))
+	# small shelter
+	var back := at - face * 1.8
+	_piece(_boxm(Vector3(3.0, 2.3, 0.1)), _mat(Color(0.5, 0.55, 0.6), 0.5), Transform3D(Basis.looking_at(face, Vector3.UP), back + Vector3.UP * 1.15))
+	_piece(_boxm(Vector3(3.2, 0.1, 1.6)), _mat(Color(0.4, 0.42, 0.45), 0.5), Transform3D(Basis.looking_at(face, Vector3.UP), back + face * 0.7 + Vector3.UP * 2.35))
+	_lamp(at + face * -0.5, face, false)
+
+
+func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: Material, win_mat: Material) -> void:
+	var pts := PackedVector2Array()
+	for p in poly:
+		pts.append(Vector2(p[0], p[1]))
+	if pts[0].distance_to(pts[pts.size() - 1]) < 0.01:
+		pts.remove_at(pts.size() - 1)
+	if pts.size() < 3:
+		return
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var cen := Vector2.ZERO
+	for v in pts:
+		cen += v
+	cen /= pts.size()
+	for k in pts.size():
+		var a := pts[k]
+		var b := pts[(k + 1) % pts.size()]
+		var e := b - a
+		var nrm := Vector3(e.y, 0, -e.x).normalized()
+		if nrm.dot(Vector3((a + b).x * 0.5 - cen.x, 0, (a + b).y * 0.5 - cen.y)) < 0.0:
+			nrm = -nrm
+		st.set_normal(nrm)
+		var a0 := Vector3(a.x, base, a.y)
+		var b0 := Vector3(b.x, base, b.y)
+		var a1 := a0 + Vector3.UP * h
+		var b1 := b0 + Vector3.UP * h
+		st.add_vertex(a0); st.add_vertex(b1); st.add_vertex(b0)
+		st.add_vertex(a0); st.add_vertex(a1); st.add_vertex(b1)
+		# lit window on longer walls
+		if e.length() > 4.0 and rng.randf() < 0.45:
+			var mid := (a + b) * 0.5
+			var wb := Basis.looking_at(-nrm, Vector3.UP)
+			_piece(_boxm(Vector3(minf(e.length() * 0.4, 3.0), 0.9, 0.05)), win_mat,
+				Transform3D(wb, Vector3(mid.x, base + minf(h * 0.55, 2.0), mid.y) + nrm * 0.04))
+	var wm := MeshInstance3D.new()
+	st.set_material(wall_mat)
+	wm.mesh = st.commit()
+	wm.material_override = wall_mat
+	wall_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_add(wm)
+	# flat roof slab with a slight overhang (Japanese houses vary; a slab reads well at night)
+	var tris := Geometry2D.triangulate_polygon(pts)
+	if tris.is_empty():
+		return
+	var rt := SurfaceTool.new()
+	rt.begin(Mesh.PRIMITIVE_TRIANGLES)
+	rt.set_normal(Vector3.UP)
+	for k in range(0, tris.size(), 3):
+		for m in [0, 2, 1]:
+			var v := pts[tris[k + m]]
+			var o := (v - cen).normalized() * 0.4
+			rt.add_vertex(Vector3(v.x + o.x, base + h + 0.05, v.y + o.y))
+	var rm := MeshInstance3D.new()
+	roof_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	rt.set_material(roof_mat)
+	rm.mesh = rt.commit()
+	_add(rm)

@@ -135,6 +135,17 @@ func _load_traced(path: String) -> void:
 	traced = true
 	terrain_info = data.get("terrain", {})
 	tree_data = data.get("trees", [])
+	far_info = data.get("far_terrain", {})
+	lake_info = data.get("lake", {}) if data.get("lake") != null else {}
+	towns_data = data.get("towns", [])
+	features = data.get("features", {})
+	var rails: Array = data.get("rails", [])
+	if rails.size() == 2:
+		rail_l = rails[0]
+		rail_r = rails[1]
+	for b in features.get("bridges", []):
+		for k in range(int(b[0]) - 2, int(b[1]) + 3):
+			bridge_idx[k] = true
 	hairpins = int(data.get("hairpins", 0))
 	var pts: Array = data.points
 	var n := pts.size()
@@ -493,8 +504,10 @@ func _build_guardrails() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var prof := [[0.0, 0.42], [0.06, 0.49], [0.02, 0.56], [0.06, 0.63], [0.0, 0.70], [-0.02, 0.70], [-0.02, 0.42]]
-	for side in [-1.0, 1.0]:
+	for side: float in [-1.0, 1.0]:
 		for i in range(1, P.size()):
+			if not (has_rail(i, side) and has_rail(i - 1, side)):
+				continue
 			for k in prof.size():
 				var k2 := (k + 1) % prof.size()
 				var lat_a: float = side * (rail - prof[k][0])
@@ -524,7 +537,9 @@ func _build_guardrails() -> void:
 		if S[i] < next_s:
 			continue
 		next_s = S[i] + 4.0
-		for side in [-1.0, 1.0]:
+		for side: float in [-1.0, 1.0]:
+			if not has_rail(i, side):
+				continue
 			var p: Vector3 = P[i] + R[i] * (side * (rail + 0.08))
 			var basis := Basis.looking_at(D[i], Vector3.UP)
 			posts.append(Transform3D(basis, p + Vector3.UP * 0.2))
@@ -684,8 +699,46 @@ func _build_ground() -> void:
 # ---------------------------------------------------------------- terrain & roadside
 
 var terrain_h := PackedFloat32Array()
+var far_info: Dictionary = {}
+var far_h := PackedFloat32Array()
+var lake_info: Dictionary = {}
+var towns_data: Array = []
+var features: Dictionary = {}
+var rail_l := ""
+var rail_r := ""
+var bridge_idx := {}
+
+
+## Whether a guardrail stands at sample i on this side (real data on traced
+## courses; everywhere on the placeholder courses).
+func has_rail(i: int, side: float) -> bool:
+	if bridge_idx.has(i):
+		return false
+	var flags := rail_l if side < 0.0 else rail_r
+	if flags.is_empty():
+		return true
+	return flags.unicode_at(clampi(i, 0, flags.length() - 1)) == 49
 var _road_grid := {}
 const ROAD_CELL := 16.0
+
+
+## Index of the nearest centerline sample anywhere on the course.
+func nearest_index(p: Vector3) -> int:
+	dist_to_road(p)
+	var key := Vector2i(floori(p.x / ROAD_CELL), floori(p.z / ROAD_CELL))
+	var best := INF
+	var bi := 0
+	for gx in range(-1, 2):
+		for gz in range(-1, 2):
+			var k2 := key + Vector2i(gx, gz)
+			if not _road_grid.has(k2):
+				continue
+			for i in _road_grid[k2]:
+				var d := Vector2(P[i].x - p.x, P[i].z - p.z).length_squared()
+				if d < best:
+					best = d
+					bi = i
+	return bi
 
 
 ## Horizontal distance from a point to the nearest centerline sample anywhere
@@ -732,16 +785,54 @@ func terrain_height(x: float, z: float) -> float:
 
 
 func _build_terrain() -> void:
-	var nx: int = terrain_info.nx
-	var nz: int = terrain_info.nz
-	var cell: float = terrain_info.cell
-	var ox: float = terrain_info.origin[0]
-	var oz: float = terrain_info.origin[1]
-	var f := FileAccess.open("res://tracks/" + terrain_info.file, FileAccess.READ)
-	var h := f.get_buffer(nx * nz * 4).to_float32_array()
-	terrain_h = h
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
+	terrain_h = _load_grid(terrain_info)
+	_grid_mesh(terrain_info, terrain_h, mat, Rect2())
+	if not far_info.is_empty():
+		# real mountains and valleys out to the horizon, with a hole where the
+		# detailed terrain around the road sits
+		far_h = _load_grid(far_info)
+		var near := Rect2(terrain_info.origin[0], terrain_info.origin[1],
+			(terrain_info.nx - 1) * terrain_info.cell, (terrain_info.nz - 1) * terrain_info.cell)
+		_grid_mesh(far_info, far_h, mat, near.grow(-far_info.cell))
+	if not lake_info.is_empty():
+		var water := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(lake_info.x1 - lake_info.x0, lake_info.z1 - lake_info.z0)
+		water.mesh = pm
+		var wm := StandardMaterial3D.new()
+		wm.albedo_color = Color(0.02, 0.05, 0.12)
+		wm.roughness = 0.03
+		wm.metallic = 0.6
+		wm.emission_enabled = true
+		wm.emission = Color(0.02, 0.04, 0.1)
+		water.material_override = wm
+		water.position = Vector3((lake_info.x0 + lake_info.x1) * 0.5, lake_info.y, (lake_info.z0 + lake_info.z1) * 0.5)
+		add_child(water)
+
+
+func _load_grid(info: Dictionary) -> PackedFloat32Array:
+	var f := FileAccess.open("res://tracks/" + info.file, FileAccess.READ)
+	return f.get_buffer(int(info.nx) * int(info.nz) * 4).to_float32_array()
+
+
+## Height of the coarse real-world terrain (towns, horizon).
+func far_height(x: float, z: float) -> float:
+	if far_h.is_empty():
+		return min_y - 260.0
+	var cell: float = far_info.cell
+	var i := clampi(int((x - far_info.origin[0]) / cell), 0, int(far_info.nx) - 1)
+	var j := clampi(int((z - far_info.origin[1]) / cell), 0, int(far_info.nz) - 1)
+	return far_h[j * int(far_info.nx) + i]
+
+
+func _grid_mesh(info: Dictionary, h: PackedFloat32Array, mat: Material, hole: Rect2) -> void:
+	var nx: int = info.nx
+	var nz: int = info.nz
+	var cell: float = info.cell
+	var ox: float = info.origin[0]
+	var oz: float = info.origin[1]
 	var tile := 64
 	for tz in range(0, nz - 1, tile):
 		for tx in range(0, nx - 1, tile):
@@ -763,14 +854,14 @@ func _build_terrain() -> void:
 					var hu := h[mini(gj + 1, nz - 1) * nx + gi]
 					norms[j * w + i] = Vector3(hl - hr, 2.0 * cell, hd - hu).normalized()
 			var idx := PackedInt32Array()
-			idx.resize((w - 1) * (d - 1) * 6)
-			var c := 0
 			for j in d - 1:
 				for i in w - 1:
+					if hole.has_area() and hole.has_point(Vector2(ox + (tx + i + 0.5) * cell, oz + (tz + j + 0.5) * cell)):
+						continue
 					var a := j * w + i
-					idx[c] = a; idx[c + 1] = a + 1; idx[c + 2] = a + w
-					idx[c + 3] = a + 1; idx[c + 4] = a + w + 1; idx[c + 5] = a + w
-					c += 6
+					idx.append_array([a, a + 1, a + w, a + 1, a + w + 1, a + w])
+			if idx.is_empty():
+				continue
 			var arrays := []
 			arrays.resize(Mesh.ARRAY_MAX)
 			arrays[Mesh.ARRAY_VERTEX] = verts

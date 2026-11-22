@@ -10,3 +10,7 @@ reference/
 music/*
 !music/README.md
 !music/.gdignore
+
+# elevation tile cache (re-downloadable)
+tools/osm/*.npy
+tools/osm/haruna_osm.json
