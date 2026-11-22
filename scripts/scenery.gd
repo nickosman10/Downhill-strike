@@ -1258,9 +1258,11 @@ func _chevron_rows() -> void:
 
 func _tunnels() -> void:
 	# concrete tube with a row of orange sodium lamps, like the anime tunnels
-	var wall := _mat(Color(0.42, 0.42, 0.44), 0.9)
+	# dark concrete so the moonlit ambient doesn't wash it out; the sodium
+	# lamps give the warm orange glow
+	var wall := _mat(Color(0.13, 0.12, 0.12), 0.95)
 	wall.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var lamp := _emissive(Color(1.0, 0.62, 0.22), 4.0)
+	var lamp := _emissive(Color(1.0, 0.62, 0.22), 6.0)
 	for tn in t.tunnels:
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1287,8 +1289,8 @@ func _tunnels() -> void:
 				if (i - i0) % 12 == 0:
 					var l := OmniLight3D.new()
 					l.light_color = Color(1.0, 0.62, 0.3)
-					l.light_energy = 1.6
-					l.omni_range = 13.0
+					l.light_energy = 3.2
+					l.omni_range = 16.0
 					l.position = lp + Vector3.DOWN * 0.6
 					_add(l)
 		st.set_material(wall)

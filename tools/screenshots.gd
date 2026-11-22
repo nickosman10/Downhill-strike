@@ -97,6 +97,16 @@ func _run() -> void:
 			best_d = dd
 			best_i = i
 	await _shoot_at(race, tr.S[best_i] - 40.0, "11_city_view", false)
+	# inside / at the entrance of the first tunnel, if the course has one
+	if race.track.tunnels.size() > 0:
+		var tn: Array = race.track.tunnels[0]
+		var tr0 := race.track
+		await _shoot_at(race, tr0.S[maxi(int(tn[0]) - 25, 0)], "16_tunnel_entrance", false)
+		var ti := int((int(tn[0]) + int(tn[1])) / 2)
+		car.place(tr0.S[ti], 0.0)
+		race.cam.snap()
+		await _frames(20)
+		await _save("17_tunnel_inside")
 	# rock-fall protection on the cut slopes
 	for spot in [[L * 0.28, -1.0, "13_rockfall_a"], [L * 0.65, 1.0, "14_rockfall_b"]]:
 		var si := tr.index_at_s(spot[0])
