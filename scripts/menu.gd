@@ -78,6 +78,20 @@ func _ready() -> void:
 	info.add_theme_font_size_override("bold_font_size", 26)
 	right.add_child(info)
 
+	var music_row := HBoxContainer.new()
+	music_row.add_theme_constant_override("separation", 10)
+	right.add_child(music_row)
+	var pick := Button.new()
+	pick.text = "♪ Choose music folder…"
+	pick.custom_minimum_size = Vector2(0, 40)
+	pick.pressed.connect(_pick_music_folder)
+	music_row.add_child(pick)
+	var skip := Button.new()
+	skip.text = "Next song (M)"
+	skip.custom_minimum_size = Vector2(0, 40)
+	skip.pressed.connect(func(): Music.next_track())
+	music_row.add_child(skip)
+
 	var go := Button.new()
 	go.text = "RACE  ▶"
 	go.custom_minimum_size = Vector2(0, 56)
@@ -116,12 +130,27 @@ func _refresh() -> void:
 			mode_text = "Side-by-side downhill battle against the local ace, [b]%s[/b]. First to the bottom wins.\nKill your headlights while chasing to rattle them." % c.rival.name
 		Game.Mode.DAWN_DELIVERY:
 			mode_text = "The early-morning delivery run. A cup of water sits on the dash: arrive with at least half of it. Smooth is fast."
-	var music_line := "Music: %d song(s) in your music folder" % Music.tracks.size() if Music.tracks.size() > 0 else "Music: none yet. Put your own .ogg/.mp3 Eurobeat files in the \"music\" folder (see music/README.md)"
+	var music_line := "Music: %d song(s) in your music folder" % Music.tracks.size() if Music.tracks.size() > 0 else "Music: none yet. Press \"Choose music folder\" and pick the folder with your Eurobeat songs (.mp3/.ogg)"
 	info.text = music_line + "\n\n" + "[b]%s[/b]  ·  %s\n%s\n\nLength %.1f km   ·   Drop %d m   ·   Hairpins %d   ·   Width %.1f m\nBest (%s): %s   ·   Best drift score: %d\n\n%s\n\n[color=#9aa]Controls: W/S or ↑/↓ throttle/brake · A/D steer · Space handbrake · L headlights · C camera · R reset · Esc menu · M next song · N music on/off · Gamepad supported\nTechniques: handbrake drift · inertia drift (flick left-right) · brake drift · gutter hook (inside wheels in the hairpin ditch) · blind attack (lights off at night = x2 points)[/color]" % [
 		c.name, c.region, c.blurb, t.length / 1000.0, int(t.drop), t.hairpins, c.width,
 		Game.MODE_NAMES[Game.mode], Game.format_time(best) if best > 0.0 else "--",
 		Game.best_score(c.id), mode_text]
 	t.free()
+
+
+func _pick_music_folder() -> void:
+	var dlg := FileDialog.new()
+	dlg.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	dlg.access = FileDialog.ACCESS_FILESYSTEM
+	dlg.use_native_dialog = true
+	dlg.title = "Choose the folder with your Eurobeat songs (.mp3 / .ogg)"
+	dlg.dir_selected.connect(func(path: String):
+		Music.set_folder(path)
+		_refresh()
+		dlg.queue_free())
+	dlg.canceled.connect(dlg.queue_free)
+	add_child(dlg)
+	dlg.popup_centered(Vector2i(900, 600))
 
 
 func _go() -> void:

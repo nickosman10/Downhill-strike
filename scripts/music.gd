@@ -15,6 +15,7 @@ var tracks: Array[String] = []
 var order: Array[String] = []
 var enabled := true
 var current := ""
+var custom_folder := ""      # any folder on the PC chosen from the menu
 
 
 func _ready() -> void:
@@ -26,6 +27,7 @@ func _ready() -> void:
 	_bind("music_next", KEY_M)
 	_bind("music_toggle", KEY_N)
 	DirAccess.make_dir_recursive_absolute("user://music")
+	custom_folder = Game.records.get_value("music", "folder", "")
 	rescan()
 	next_track()
 
@@ -40,6 +42,8 @@ func _bind(action: String, key: Key) -> void:
 
 func folders() -> Array[String]:
 	var out: Array[String] = ["user://music"]
+	if custom_folder != "":
+		out.append(custom_folder)
 	if OS.has_feature("editor"):
 		out.append(ProjectSettings.globalize_path("res://music"))
 	else:
@@ -47,16 +51,31 @@ func folders() -> Array[String]:
 	return out
 
 
+func set_folder(path: String) -> void:
+	custom_folder = path
+	Game.records.set_value("music", "folder", path)
+	Game.records.save(Game.SAVE_PATH)
+	rescan()
+	next_track()
+
+
 func rescan() -> void:
 	tracks.clear()
 	for dir_path in folders():
-		var dir := DirAccess.open(dir_path)
-		if dir == null:
-			continue
-		for f in dir.get_files():
-			if f.get_extension().to_lower() in EXTENSIONS:
-				tracks.append(dir_path.path_join(f))
+		_scan(dir_path, 0)
 	order.clear()
+
+
+## Scans a folder and its sub-folders (albums) for songs.
+func _scan(dir_path: String, depth: int) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null or depth > 3:
+		return
+	for f in dir.get_files():
+		if f.get_extension().to_lower() in EXTENSIONS:
+			tracks.append(dir_path.path_join(f))
+	for sub in dir.get_directories():
+		_scan(dir_path.path_join(sub), depth + 1)
 
 
 func _load(path: String) -> AudioStream:
