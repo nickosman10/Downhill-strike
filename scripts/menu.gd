@@ -237,7 +237,7 @@ func _ready() -> void:
 	right.add_child(go)
 
 	var help := Label.new()
-	help.text = "W/S throttle·brake   A/D steer   Space handbrake   L lights   C camera   R reset   Esc menu   M next song   N music on/off"
+	help.text = "DRIFT: tap Space (or tap brake) while turning · steer in = more angle, steer out = less · let go to straighten\nW/S throttle·brake   A/D steer   L lights   C camera   R reset   Esc menu   M next song   N music on/off"
 	help.add_theme_font_size_override("font_size", 13)
 	help.add_theme_color_override("font_color", Color(0.6, 0.66, 0.8))
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

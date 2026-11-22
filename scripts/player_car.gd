@@ -64,6 +64,13 @@ var slosh := Vector2.ZERO
 var slosh_v := Vector2.ZERO
 
 var _steer_hist: Array = []      # [time, sign] of strong steering inputs
+var drift_dir := 0.0             # +1 drifting through a right-hander, -1 left
+var drift_beta := 0.0            # current body angle to the direction of travel
+var _drift_exit := false
+var _brake_down_at := -10.0
+var _brake_up_at := -10.0
+var _was_braking := false
+var _idle_time := 0.0
 var _clock := 0.0
 var _exit_timer := 0.0
 var _prev_vel := Vector2.ZERO
@@ -160,15 +167,22 @@ func physics_step(dt: float) -> void:
 	else:
 		gutter_time = 0.0
 
-	# --- drift entry triggers
+	# --- drift entry: only on purpose (no surprise slides)
+	var braking_now := brake > 0.5
+	if braking_now and not _was_braking:
+		_brake_down_at = _clock
+	if not braking_now and _was_braking:
+		_brake_up_at = _clock
+	_was_braking = braking_now
 	_detect_inertia_drift(target_steer)
-	if not drifting and speed > 9.0:
-		if handbrake and absf(steer) > 0.15:
-			_start_drift(signf(steer) * 1.1)
-		elif brake > 0.4 and absf(steer) > 0.55 and speed > 20.0:
-			_start_drift(signf(steer) * 0.7)
-		elif absf(slip) > 0.22:
-			_start_drift(0.0)
+	if not drifting and speed > 9.0 and absf(target_steer) > 0.35:
+		if handbrake:
+			_start_drift(signf(target_steer))
+		else:
+			# brake tap: a short stab of brake, then turn in hard
+			var tapped := _brake_up_at - _brake_down_at < 0.4 and _clock - _brake_up_at < 0.55
+			if tapped and absf(target_steer) > 0.6 and speed > 13.0:
+				_start_drift(signf(target_steer))
 
 	# --- yaw
 	var max_steer := lerpf(0.62, 0.17, clampf(speed / 42.0, 0.0, 1.0))
@@ -178,19 +192,48 @@ func physics_step(dt: float) -> void:
 		r_t = clampf(r_t, -r_max, r_max)
 		yaw_rate = lerpf(yaw_rate, r_t, 1.0 - exp(-10.0 * dt))
 	else:
-		var power_out := throttle * signf(slip) * 1.5 * clampf(absf(slip) * 4.0, 0.0, 1.0)
-		var r_t := steer * 2.0 + slip * 2.4 - power_out
-		if handbrake:
-			r_t -= signf(slip) * 0.6
-		if in_gutter:
-			r_t = lerpf(r_t, v_long * curv, 0.6)   # the gutter steers you round
-		r_t = clampf(r_t, -3.2, 3.2)
-		yaw_rate = lerpf(yaw_rate, r_t, 1.0 - exp(-6.0 * dt))
+		yaw_rate = 0.0
 	yaw = wrapf(yaw + yaw_rate * dt, -PI, PI)
 	fwd = forward2()
 
+	# --- assisted drift: the game holds the angle, you steer the line
+	if drifting:
+		var into := clampf(target_steer * drift_dir, 0.0, 1.0)
+		var counter := clampf(-target_steer * drift_dir, 0.0, 1.0)
+		var beta_t := 0.32 + 0.3 * into - 0.28 * counter + 0.12 * throttle
+		if _drift_exit:
+			beta_t = 0.0
+		drift_beta = move_toward(drift_beta, beta_t, dt * (1.6 if _drift_exit else 1.2))
+		# how hard the travel direction swings round the corner
+		var lat_g := G * (0.55 + 0.5 * into - 0.35 * counter) * (1.6 if in_gutter else 1.0)
+		var omega := drift_dir * lat_g / maxf(speed, 6.0)
+		# follow the road a little so a held drift carries you round the bend
+		var road_omega := speed * curv
+		omega = lerpf(omega, road_omega, 0.6)
+		# keep off the guard rails: ease the line back toward the road
+		var edge := clampf((absf(lat) - (track.hw - 1.4)) / 1.6, 0.0, 1.0)
+		omega -= signf(lat) * edge * 0.9
+		vel = vel.rotated(omega * dt)
+		var travel := vel.angle()
+		var want_yaw := travel + drift_dir * drift_beta
+		var dyaw := wrapf(want_yaw - yaw, -PI, PI)
+		yaw_rate = dyaw * 8.0
+		yaw = wrapf(yaw + dyaw * minf(1.0, 8.0 * dt), -PI, PI)
+		fwd = forward2()
+		# finishing the drift: counter-steer, or let go of steering and throttle
+		if counter > 0.6 or (into < 0.1 and throttle < 0.2):
+			_idle_time += dt
+		else:
+			_idle_time = 0.0
+		if _idle_time > 0.35 or speed < 7.0:
+			_drift_exit = true
+		if _drift_exit and drift_beta < 0.04:
+			drifting = false
+			_drift_exit = false
+			yaw = travel
+			fwd = forward2()
 	# --- velocity direction follows heading, limited by tyre grip
-	if speed > 0.3:
+	if speed > 0.3 and not drifting:
 		var travel_ang := vel.angle()
 		var target_ang := yaw if vel.dot(fwd) >= 0.0 else yaw + PI
 		var diff := wrapf(target_ang - travel_ang, -PI, PI)
@@ -208,7 +251,7 @@ func physics_step(dt: float) -> void:
 	if throttle > 0.0:
 		a_drive = throttle * minf(TRACTION, POWER / maxf(speed, 4.0))
 		if drifting:
-			a_drive *= 0.8
+			a_drive *= 0.9
 	var a_resist := 0.00045 * speed * speed + 0.12
 	if brake > 0.0 and v_long > 0.5:
 		a_resist += BRAKE * brake
@@ -221,7 +264,7 @@ func physics_step(dt: float) -> void:
 	if handbrake:
 		a_resist += 2.5
 	if drifting:
-		a_resist += absf(sin(slip)) * speed * 0.09
+		a_resist += absf(sin(drift_beta)) * speed * 0.05
 	vel += fwd * a_drive * dt
 	var dv := minf(a_resist * dt, speed)
 	vel -= dir * dv
@@ -249,22 +292,12 @@ func physics_step(dt: float) -> void:
 		var v_out := vel.dot(n2)
 		if v_out > 0.0:
 			vel -= n2 * v_out * 1.25
-			vel *= 1.0 - clampf(v_out * 0.03, 0.0, 0.4)
+			vel *= 1.0 - clampf(v_out * 0.02, 0.0, 0.25)
 			yaw_rate *= 0.5
 			if v_out > 2.0:
 				_crash(v_out)
 		vel *= 1.0 - 0.5 * dt   # scraping along the rail
 	pos.y = track.surface_height(proj)
-
-	# --- drift exit
-	speed = vel.length()
-	if drifting:
-		if (absf(slip) < 0.08 and not handbrake) or speed < 5.0:
-			_exit_timer += dt
-			if _exit_timer > 0.15:
-				drifting = false
-		else:
-			_exit_timer = 0.0
 
 	# --- engine
 	var wheel_rpm := speed / (TAU * CarModel.WHEEL_R) * 60.0
@@ -298,14 +331,18 @@ func _detect_inertia_drift(target_steer: float) -> void:
 		if _steer_hist.size() >= 2:
 			var prev: Array = _steer_hist[-2]
 			if _clock - prev[0] < 0.45 and prev[1] == -sg and speed > 15.0 and not drifting:
-				_start_drift(sg * 1.6)
+				_start_drift(sg)
 				_award("INERTIA DRIFT", 250, Color(1.0, 0.8, 0.2))
 
 
-func _start_drift(kick: float) -> void:
+func _start_drift(dir: float) -> void:
+	if dir == 0.0:
+		return
 	drifting = true
-	_exit_timer = 0.0
-	yaw_rate += kick
+	drift_dir = dir
+	drift_beta = 0.08
+	_drift_exit = false
+	_idle_time = 0.0
 	drift_time = 0.0
 
 
