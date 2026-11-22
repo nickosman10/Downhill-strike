@@ -36,43 +36,82 @@ COURSES = {
 _tiles = {}
 
 
-def tile(tx, ty):
-    if (tx, ty) not in _tiles:
-        cache = os.path.join(HERE, "osm", f"dem_{Z}_{tx}_{ty}.npy")
-        if os.path.exists(cache):
-            _tiles[(tx, ty)] = np.load(cache)
-        else:
-            u = f"https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{Z}/{tx}/{ty}.png"
-            im = np.asarray(Image.open(io.BytesIO(urllib.request.urlopen(u, timeout=60).read())).convert("RGB")).astype(np.float64)
-            a = im[:, :, 0] * 256 + im[:, :, 1] + im[:, :, 2] / 256 - 32768
-            np.save(cache, a)
-            _tiles[(tx, ty)] = a
-    return _tiles[(tx, ty)]
+def _gsi(layer, z, tx, ty):
+    """GSI (国土地理院) elevation PNG tile -> metres (NaN where no data)."""
+    key = (layer, z, tx, ty)
+    if key in _tiles:
+        return _tiles[key]
+    cache = os.path.join(HERE, "osm", f"gsi_{layer}_{z}_{tx}_{ty}.npy")
+    if os.path.exists(cache):
+        a = np.load(cache)
+    else:
+        u = f"https://cyberjapandata.gsi.go.jp/xyz/{layer}/{z}/{tx}/{ty}.png"
+        try:
+            raw = urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "DownhillStrike/1.0"}), timeout=60).read()
+            im = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB")).astype(np.int64)
+            v = im[:, :, 0] * 65536 + im[:, :, 1] * 256 + im[:, :, 2]
+            a = np.where(v < 2 ** 23, v, v - 2 ** 24).astype(np.float64) * 0.01
+            a[v == 2 ** 23] = np.nan
+        except Exception:
+            a = np.full((256, 256), np.nan)
+        np.save(cache, a)
+    _tiles[key] = a
+    return a
 
 
-def latlon_to_tile(lat, lon):
-    n = 2 ** Z
-    x = (lon + 180) / 360 * n
-    y = (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n
+def _tile_xy(lat, lon, z):
+    n = 2 ** z
+    x = (np.asarray(lon) + 180) / 360 * n
+    y = (1 - np.log(np.tan(np.radians(lat)) + 1 / np.cos(np.radians(lat))) / np.pi) / 2 * n
     return x, y
 
 
+def _sample(layer, z, lat, lon):
+    lat = np.atleast_1d(np.asarray(lat, dtype=np.float64))
+    lon = np.atleast_1d(np.asarray(lon, dtype=np.float64))
+    tx, ty = _tile_xy(lat, lon, z)
+    tx0, tx1 = int(np.floor(tx.min())) - 1, int(np.floor(tx.max())) + 1
+    ty0, ty1 = int(np.floor(ty.min())) - 1, int(np.floor(ty.max())) + 1
+    mosaic = np.zeros(((ty1 - ty0 + 1) * 256, (tx1 - tx0 + 1) * 256))
+    for a in range(ty0, ty1 + 1):
+        for b in range(tx0, tx1 + 1):
+            mosaic[(a - ty0) * 256:(a - ty0 + 1) * 256, (b - tx0) * 256:(b - tx0 + 1) * 256] = _gsi(layer, z, b, a)
+    filled = np.where(np.isnan(mosaic), np.nanmean(mosaic), mosaic)
+    vals = map_coordinates(filled, [(ty - ty0) * 256 - 0.5, (tx - tx0) * 256 - 0.5], order=1)
+    holes = map_coordinates(np.isnan(mosaic).astype(float), [(ty - ty0) * 256 - 0.5, (tx - tx0) * 256 - 0.5], order=1) > 0.01
+    return vals, holes
+
+
+def dem_points(lat, lon):
+    """Best available ground height: GSI 5 m laser DEM, falling back to 10 m."""
+    h5, holes = _sample("dem5a_png", 15, lat, lon)
+    if holes.any():
+        h10, _ = _sample("dem_png", 14, np.atleast_1d(lat)[holes], np.atleast_1d(lon)[holes])
+        h5[holes] = h10
+    return h5
+
+
 def dem(lat, lon):
-    x, y = latlon_to_tile(lat, lon)
-    tx, ty = int(x), int(y)
-    px, py = (x - tx) * 256 - 0.5, (y - ty) * 256 - 0.5
-    # bilinear across tile borders
-    i0, j0 = math.floor(py), math.floor(px)
-    a, b = py - i0, px - j0
-    def at(i, j):
-        ttx, tty = tx, ty
-        if j < 0: ttx -= 1; j += 256
-        if j > 255: ttx += 1; j -= 256
-        if i < 0: tty -= 1; i += 256
-        if i > 255: tty += 1; i -= 256
-        return tile(ttx, tty)[i, j]
-    return (at(i0, j0) * (1 - a) * (1 - b) + at(i0, j0 + 1) * (1 - a) * b +
-            at(i0 + 1, j0) * a * (1 - b) + at(i0 + 1, j0 + 1) * a * b)
+    return float(dem_points(lat, lon)[0])
+
+
+def aerial_mosaic(lat0_, lat1_, lon0_, lon1_, z=17):
+    """GSI seamless aerial photo mosaic covering a lat/lon box."""
+    x0, y1 = _tile_xy(lat0_, lon0_, z)
+    x1, y0 = _tile_xy(lat1_, lon1_, z)
+    tx0, tx1, ty0, ty1 = int(x0), int(x1), int(y0), int(y1)
+    img = Image.new("RGB", ((tx1 - tx0 + 1) * 256, (ty1 - ty0 + 1) * 256))
+    for a in range(ty0, ty1 + 1):
+        for b in range(tx0, tx1 + 1):
+            cache = os.path.join(HERE, "osm", f"photo_{z}_{b}_{a}.jpg")
+            if not os.path.exists(cache):
+                u = f"https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{b}/{a}.jpg"
+                try:
+                    open(cache, "wb").write(urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "DownhillStrike/1.0"}), timeout=60).read())
+                except Exception:
+                    Image.new("RGB", (256, 256), (40, 60, 40)).save(cache)
+            img.paste(Image.open(cache).convert("RGB"), ((b - tx0) * 256, (a - ty0) * 256))
+    return img, (tx0, ty0, z)
 
 
 def resample(poly, step):
@@ -159,13 +198,11 @@ def main(cid):
     pts = limit_radius(pts, 9.0)
     # real heights along the road; roads are smoother than the 10 m DEM and
     # the course is downhill only, so smooth and make it non-increasing
-    ys = np.array([dem(*to_ll(x, z)) for x, z in pts])
-    ys = gaussian_filter(ys, 12)
-    for i in range(1, len(ys)):
-        ys[i] = min(ys[i], ys[i - 1] - 0.0005 * STEP)
-    ys = gaussian_filter(ys, 4)
-    for i in range(1, len(ys)):
-        ys[i] = min(ys[i], ys[i - 1])
+    lls = np.array([to_ll(x, z) for x, z in pts])
+    ys = dem_points(lls[:, 0], lls[:, 1])
+    ys = gaussian_filter(ys, 5)      # lidar ground -> smooth road surface
+    ups = int((np.diff(ys) > 0.02).sum())
+    print(f"real road profile: {ups} rising samples of {len(ys)}")
     top = ys[0]
     # lead-in / tail, flat-ish
     (x0, z0), (x1, z1) = pts[0], pts[1]
@@ -205,7 +242,7 @@ def main(cid):
         towns.append({"name": name, "x": round(x, 1), "z": round(z, 1), "y": round(dem(la, lo_) - top, 1), "r": rad, "n": cnt})
     out = {"id": cid, "step": STEP, "points": [[round(v, 3) for v in p] for p in xyz], "hairpins": hp,
            "terrain": terrain, "far_terrain": far, "features": feats, "rails": rails, "trees": trees, "lake": lake, "towns": towns,
-           "geo": {"lat0": lat0, "lon0": lon0, "top_asl": round(float(top), 1), "source": "OpenStreetMap Route 33 + Terrarium DEM"}}
+           "geo": {"lat0": lat0, "lon0": lon0, "top_asl": round(float(top), 1), "source": "OpenStreetMap Route 33 + GSI 5m DEM + GSI aerial photo"}}
     json.dump(out, open(os.path.join(HERE, "..", "tracks", cid + ".json"), "w"), separators=(",", ":"))
 
 
@@ -290,19 +327,6 @@ def export_features(c, xyz, to_local, terrain):
     return feats, rails
 
 
-def dem_grid(lat, lon):
-    n = 2 ** Z
-    tx = (lon + 180) / 360 * n
-    ty = (1 - np.log(np.tan(np.radians(lat)) + 1 / np.cos(np.radians(lat))) / np.pi) / 2 * n
-    tx0, tx1 = int(tx.min()) - 1, int(tx.max()) + 1
-    ty0, ty1 = int(ty.min()) - 1, int(ty.max()) + 1
-    mosaic = np.zeros(((ty1 - ty0 + 1) * 256, (tx1 - tx0 + 1) * 256))
-    for a in range(ty0, ty1 + 1):
-        for b in range(tx0, tx1 + 1):
-            mosaic[(a - ty0) * 256:(a - ty0 + 1) * 256, (b - tx0) * 256:(b - tx0 + 1) * 256] = tile(b, a)
-    return map_coordinates(mosaic, [(ty - ty0) * 256 - 0.5, (tx - tx0) * 256 - 0.5], order=1)
-
-
 def build_far_terrain(cid, xyz, top, to_ll, half=8000.0, cell=40.0):
     """Real mountains and valleys all around, coarse, for the horizon."""
     P = np.array(xyz)
@@ -311,7 +335,7 @@ def build_far_terrain(cid, xyz, top, to_ll, half=8000.0, cell=40.0):
     gx, gz = np.meshgrid(cx - half + np.arange(nx) * cell, cz - half + np.arange(nz) * cell)
     lat0, lon0 = to_ll(0, 0)
     kx = 111320 * math.cos(math.radians(lat0))
-    h = dem_grid(lat0 - gz / 111320.0, lon0 + gx / kx) - top - 3.0
+    h = _sample("dem_png", 13, (lat0 - gz / 111320.0).ravel(), (lon0 + gx / kx).ravel())[0].reshape(gz.shape) - top - 3.0
     fname = f"{cid}_far.bin"
     h.astype("<f4").tofile(os.path.join(HERE, "..", "tracks", fname))
     print(f"far terrain {nx}x{nz} @ {cell} m")
@@ -331,18 +355,8 @@ def build_terrain(cid, xyz, top, to_ll, to_local, c, cell=5.0, margin=260.0):
     lon0 = to_ll(0, 0)[1]
     kx = 111320 * math.cos(math.radians(to_ll(0, 0)[0]))
     lon = lon0 + gx / kx
-    # vectorised DEM sampling via tile mosaic
-    n = 2 ** Z
-    tx = (lon + 180) / 360 * n
-    ty = (1 - np.log(np.tan(np.radians(lat)) + 1 / np.cos(np.radians(lat))) / np.pi) / 2 * n
-    tx0, tx1 = int(tx.min()) - 1, int(tx.max()) + 1
-    ty0, ty1 = int(ty.min()) - 1, int(ty.max()) + 1
-    mosaic = np.zeros(((ty1 - ty0 + 1) * 256, (tx1 - tx0 + 1) * 256))
-    for a in range(ty0, ty1 + 1):
-        for b in range(tx0, tx1 + 1):
-            mosaic[(a - ty0) * 256:(a - ty0 + 1) * 256, (b - tx0) * 256:(b - tx0 + 1) * 256] = tile(b, a)
-    real = map_coordinates(mosaic, [(ty - ty0) * 256 - 0.5, (tx - tx0) * 256 - 0.5], order=1) - top
-    real = gaussian_filter(real, 0.8)
+    real = dem_points(lat.ravel(), lon.ravel()).reshape(lat.shape) - top
+    real = gaussian_filter(real, 0.5)
     q = np.stack([gx.ravel(), gz.ravel()], 1)
     tree = cKDTree(xz)
     d, idx = tree.query(q)
@@ -350,7 +364,7 @@ def build_terrain(cid, xyz, top, to_ll, to_local, c, cell=5.0, margin=260.0):
     natural = real.ravel()
     # cut into the hillside steeply (walls / rock-fall protection go there),
     # fill the valley side with a gentler embankment
-    width = np.where(natural > hr + 0.5, 6.0, 18.0)
+    width = np.where(natural > hr + 0.5, 4.0, 6.0)
     t = np.clip((d - (RAIL + 1.0)) / width, 0.0, 1.0)
     t = t * t * (3 - 2 * t)
     h = ((hr - 0.6) * (1 - t) + natural * t).reshape(nz, nx)
@@ -358,6 +372,31 @@ def build_terrain(cid, xyz, top, to_ll, to_local, c, cell=5.0, margin=260.0):
     h[dd < RAIL + 1.0] = (hr - 0.6).reshape(nz, nx)[dd < RAIL + 1.0]
     fname = f"{cid}_terrain.bin"
     h.astype("<f4").tofile(os.path.join(HERE, "..", "tracks", fname))
+    # real aerial photo draped over the terrain, resampled onto the local grid
+    px = 1.25
+    ax = int((mx[0] - mn[0]) / px); az = int((mx[1] - mn[1]) / px)
+    corners = [to_ll(mn[0], mn[1]), to_ll(mx[0], mx[1])]
+    la_lo, la_hi = min(c[0] for c in corners), max(c[0] for c in corners)
+    lo_lo, lo_hi = min(c[1] for c in corners), max(c[1] for c in corners)
+    mosaic, (tx0, ty0, zz) = aerial_mosaic(la_lo, la_hi, lo_lo, lo_hi)
+    M = np.asarray(mosaic).astype(np.float32)
+    ux, uz = np.meshgrid(mn[0] + (np.arange(ax) + 0.5) * px, mn[1] + (np.arange(az) + 0.5) * px)
+    lat0_, lon0_ = to_ll(0, 0)
+    kx0 = 111320 * math.cos(math.radians(lat0_))
+    plat = lat0_ - uz / 111320.0
+    plon = lon0_ + ux / kx0
+    fx, fy = _tile_xy(plat, plon, zz)
+    coords = [(fy - ty0) * 256 - 0.5, (fx - tx0) * 256 - 0.5]
+    photo = np.stack([map_coordinates(M[:, :, ch], coords, order=1) for ch in range(3)], -1)
+    aname = f"{cid}_aerial.jpg"
+    Image.fromarray(np.clip(photo, 0, 255).astype(np.uint8)).save(os.path.join(HERE, "..", "tracks", aname), quality=85)
+    gray = photo.mean(-1)
+    from scipy.ndimage import uniform_filter
+    tex = np.sqrt(np.maximum(uniform_filter(gray ** 2, 5) - uniform_filter(gray, 5) ** 2, 0))
+    r_, g_, b_ = photo[:, :, 0], photo[:, :, 1], photo[:, :, 2]
+    forest = (g_ >= r_ * 0.98) & (g_ >= b_ * 0.95) & (gray < 150) & (tex > 9.0)
+    forest = uniform_filter(forest.astype(np.float32), 3) > 0.5
+    print(f"aerial {ax}x{az} px, forest cover {forest.mean() * 100:.0f}%")
     # lake surface
     lake = None
     if c.get("lake"):
@@ -385,6 +424,9 @@ def build_terrain(cid, xyz, top, to_ll, to_local, c, cell=5.0, margin=260.0):
         y = (h[i0, j0] * (1 - a) * (1 - b) + h[i0, j0 + 1] * (1 - a) * b + h[i0 + 1, j0] * a * (1 - b) + h[i0 + 1, j0 + 1] * a * b)
         if lake and lake["x0"] < x < lake["x1"] and lake["z0"] < z < lake["z1"] and y < lake["y"] + 1.0:
             continue
+        fi, fj = int((z - mn[1]) / px), int((x - mn[0]) / px)
+        if not (0 <= fi < az and 0 <= fj < ax) or not forest[fi, fj]:
+            continue    # only where the aerial photo shows real forest
         slope = abs(h[i0, j0 + 1] - h[i0, j0]) / cell + abs(h[i0 + 1, j0] - h[i0, j0]) / cell
         if slope > 1.4:
             continue
@@ -394,7 +436,8 @@ def build_terrain(cid, xyz, top, to_ll, to_local, c, cell=5.0, margin=260.0):
             continue
         trees += [round(float(x), 1), round(float(y), 2), round(float(z), 1), round(sc, 2)]
     print(f"terrain {nx}x{nz}, {len(trees) // 4} trees, lake {lake}")
-    return {"file": fname, "origin": [float(mn[0]), float(mn[1])], "cell": cell, "nx": nx, "nz": nz}, trees, lake
+    return {"file": fname, "origin": [float(mn[0]), float(mn[1])], "cell": cell, "nx": nx, "nz": nz,
+            "aerial": aname, "aerial_size": [float(ax * px), float(az * px)]}, trees, lake
 
 
 if __name__ == "__main__":

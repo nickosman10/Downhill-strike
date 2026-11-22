@@ -14,3 +14,6 @@ music/*
 # elevation tile cache (re-downloadable)
 tools/osm/*.npy
 tools/osm/haruna_osm.json
+
+# GSI tile caches (re-downloadable)
+tools/osm/*.jpg

@@ -7,6 +7,11 @@ uniform vec3 grass_col : source_color = vec3(0.04, 0.085, 0.19);
 uniform vec3 dirt_col : source_color = vec3(0.06, 0.08, 0.17);
 uniform vec3 rock_col : source_color = vec3(0.13, 0.17, 0.3);
 uniform vec3 moon_dir = vec3(-0.35, 0.85, 0.25);
+// real aerial photo (GSI) draped over the area around the road
+uniform sampler2D aerial : source_color, filter_linear_mipmap, repeat_disable;
+uniform vec2 aerial_origin = vec2(0.0);
+uniform vec2 aerial_size = vec2(1.0);
+uniform float use_aerial = 0.0;
 
 varying vec3 wpos;
 varying vec3 wnorm;
@@ -35,5 +40,15 @@ void fragment() {
 	vec3 base = mix(ground, rock_col * strata, rock);
 	float l = dot(n, normalize(moon_dir)) + (nz - 0.5) * 0.3;
 	float shade = mix(0.55, 1.0, smoothstep(0.1, 0.35, l)) + smoothstep(0.75, 0.85, l) * 0.35;
+	vec2 auv = (wpos.xz - aerial_origin) / aerial_size;
+	if (use_aerial > 0.5 && auv.x > 0.0 && auv.y > 0.0 && auv.x < 1.0 && auv.y < 1.0) {
+		vec3 photo = texture(aerial, auv).rgb;
+		// moonlit night grade of the real ground colours
+		float lum = dot(photo, vec3(0.3, 0.55, 0.15));
+		vec3 night = mix(vec3(lum), photo, 0.45) * vec3(0.32, 0.45, 0.85);
+		// steep cuts read as rock even where the photo shows canopy
+		night = mix(night, rock_col * strata, rock * 0.6);
+		base = night * 0.75;
+	}
 	ALBEDO = base * shade;
 }

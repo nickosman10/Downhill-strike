@@ -483,7 +483,7 @@ func _build_markings() -> void:
 	var yellow := SurfaceTool.new()
 	yellow.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_strip(yellow, -0.08, 0.08, 0.012, all)
-	var ym := _mat(Color(0.95, 0.72, 0.1), 0.5)
+	var ym := _mat(Color(0.95, 0.5, 0.08), 0.5)   # orange: Japanese no-passing centre line
 	ym.cull_mode = BaseMaterial3D.CULL_DISABLED
 	yellow.set_material(ym)
 	var white := SurfaceTool.new()
@@ -787,6 +787,13 @@ func terrain_height(x: float, z: float) -> float:
 func _build_terrain() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
+	if terrain_info.has("aerial"):
+		var tex: Texture2D = load("res://tracks/" + terrain_info.aerial)
+		if tex:
+			mat.set_shader_parameter("aerial", tex)
+			mat.set_shader_parameter("aerial_origin", Vector2(terrain_info.origin[0], terrain_info.origin[1]))
+			mat.set_shader_parameter("aerial_size", Vector2(terrain_info.aerial_size[0], terrain_info.aerial_size[1]))
+			mat.set_shader_parameter("use_aerial", 1.0)
 	terrain_h = _load_grid(terrain_info)
 	_grid_mesh(terrain_info, terrain_h, mat, Rect2())
 	if not far_info.is_empty():

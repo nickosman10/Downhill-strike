@@ -5,7 +5,7 @@ render_mode unshaded, cull_disabled;
 // pale moonlit highlight on top, broken up with leafy noise like a BG painting.
 uniform vec3 shadow_col : source_color = vec3(0.012, 0.025, 0.07);
 uniform vec3 mid_col : source_color = vec3(0.035, 0.08, 0.19);
-uniform vec3 light_col : source_color = vec3(0.1, 0.22, 0.45);
+uniform vec3 light_col : source_color = vec3(0.07, 0.15, 0.32);
 uniform vec3 moon_dir = vec3(-0.35, 0.85, 0.25);
 
 varying vec3 wn;
@@ -30,6 +30,6 @@ void fragment() {
 	float n = vnoise(wp * 1.6) * 0.65 + vnoise(wp * 4.0) * 0.35;
 	l += (n - 0.5) * 0.7;
 	vec3 c = mix(shadow_col, mid_col, smoothstep(-0.15, -0.05, l));
-	c = mix(c, light_col, smoothstep(0.55, 0.62, l));
+	c = mix(c, light_col, smoothstep(0.62, 0.7, l));
 	ALBEDO = c * COLOR.rgb;
 }

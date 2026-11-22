@@ -22,7 +22,6 @@ func build(track: Track) -> void:
 	_bushes()
 	_poles()
 	_delineators()
-	_rumble_strips()
 	_ridges()
 	_city()
 	if t.features.is_empty():
@@ -189,10 +188,6 @@ func _walls() -> void:
 			var back_b := top_b + t.R[i] * side * 0.4
 			wst.set_normal(Vector3.UP)
 			_quad(wst, top_a, top_b, back_b, back_a, Vector2(u0, 0.1), Vector2(u1, 0.1), side)
-			fst.set_normal(nrm)
-			_quad(fst, top_a, top_b, top_b + Vector3.UP * 1.6, top_a + Vector3.UP * 1.6, Vector2(u0 * 2.0, 1), Vector2(u1 * 2.0, 1), side)
-			if int(t.S[i] / 3.0) != int(t.S[i - 1] / 3.0):
-				post_xf.append(Transform3D(Basis(), top_b + Vector3.UP * 0.8))
 	wst.set_material(concrete)
 	fst.set_material(fence_mat)
 	var wm := MeshInstance3D.new()
@@ -261,14 +256,35 @@ func _trees() -> void:
 	var cols := [[], [], []]
 	for k in range(0, t.tree_data.size(), 4):
 		var p := Vector3(t.tree_data[k], t.tree_data[k + 1] - 0.4, t.tree_data[k + 2])
-		if t.dist_to_road(p) < t.rail + 26.0 and p.y > t.P[t.nearest_index(p)].y + 3.0:
-			continue    # protected cut slope: concrete frames / netting, no trees
+		var dr := t.dist_to_road(p)
+		if dr < t.rail + 8.0 and p.y > t.P[t.nearest_index(p)].y + 4.0:
+			continue    # on the retaining-wall face
 		var sc: float = t.tree_data[k + 3]
-		var kind := 2 if rng.randf() < 0.3 else rng.randi_range(0, 1)
+		var kind := 2 if rng.randf() < 0.1 else rng.randi_range(0, 1)
 		var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * rng.randf_range(0.85, 1.3), sc) * 1.3)
 		sets[kind].append(Transform3D(b, p))
 		var v := rng.randf_range(0.8, 1.15)
 		cols[kind].append(Color(v, v * rng.randf_range(0.95, 1.1), v))
+	# roadside broadleaf trees whose canopies arch over the road, like the
+	# green tunnels along the real Route 33
+	for i in range(0, t.P.size(), 4):
+		for side: float in [-1.0, 1.0]:
+			if wall_sides.has(Vector2i(i, int(side))) or rng.randf() > 0.55:
+				continue
+			var off := t.rail + rng.randf_range(2.0, 5.0)
+			var p: Vector3 = t.P[i] + t.R[i] * side * off + t.D[i] * rng.randf_range(-2.0, 2.0)
+			if t.dist_to_road(p) < t.rail + 1.5:
+				continue
+			p.y = t.terrain_height(p.x, p.z) - 0.3
+			if absf(p.y - t.P[i].y) > 8.0:
+				continue
+			var sc := rng.randf_range(1.0, 1.5)
+			var lean := Basis(t.D[i], -side * rng.randf_range(0.08, 0.2))
+			var b := (lean * Basis.from_euler(Vector3(0, rng.randf() * TAU, 0))).scaled(Vector3(sc, sc * 1.2, sc) * 1.3)
+			var k2 := rng.randi_range(0, 1)
+			sets[k2].append(Transform3D(b, p))
+			var v := rng.randf_range(0.85, 1.15)
+			cols[k2].append(Color(v, v, v))
 	for kind in 3:
 		_mm_chunked(meshes[kind], sets[kind], foliage_mat, cols[kind], 160.0, 600.0)
 
@@ -284,9 +300,9 @@ func _bushes() -> void:
 			if wall_sides.has(Vector2i(i, int(side))) or wall_sides.has(Vector2i(i + 1, int(side))):
 				continue
 			var inner: bool = signf(t.K[i]) == side and absf(t.K[i]) > 1.0 / 40.0
-			var count := 5 if inner else 3
+			var count := 6 if inner else 4
 			for c in count:
-				if rng.randf() > (0.9 if inner else 0.6):
+				if rng.randf() > (0.9 if inner else 0.75):
 					continue
 				var off: float = t.rail + rng.randf_range(0.9, 14.0 if inner else 11.0)
 				var p: Vector3 = t.P[i] + t.R[i] * side * off + t.D[i] * rng.randf_range(-1.0, 1.0)
@@ -304,7 +320,7 @@ func _bushes() -> void:
 
 func _poles() -> void:
 	# wooden utility poles on one side, with sagging wires between them
-	var wood := _mat(Color(0.2, 0.17, 0.15), 0.9)
+	var wood := _mat(Color(0.5, 0.51, 0.53), 0.85)   # concrete utility poles
 	var wire_mat := _mat(Color(0.05, 0.05, 0.07), 0.8)
 	var pole := CylinderMesh.new()
 	pole.top_radius = 0.12
@@ -883,11 +899,11 @@ func _slope_protection() -> void:
 	# like Japanese mountain roads do: concrete lattice frames or wire rock
 	# netting, with a rock-fall catch fence along the bottom.
 	# painted moonlit look so the frames read at night, like the anime BGs
-	var lattice := _mat(Color(0.55, 0.68, 1.0), 0.9)
+	var lattice := _mat(Color(0.32, 0.4, 0.62), 0.9)
 	lattice.albedo_texture = _lattice_texture()
 	lattice.cull_mode = BaseMaterial3D.CULL_DISABLED
 	lattice.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	var net := _mat(Color(0.6, 0.72, 1.0), 0.6)
+	var net := _mat(Color(0.4, 0.48, 0.7), 0.6)
 	net.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	net.albedo_texture = _net_texture()
 	net.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
@@ -912,7 +928,7 @@ func _slope_protection() -> void:
 		var run_kind := 0
 		for i in range(0, n, 2):
 			var high := t.terrain_height(t.P[i].x + t.R[i].x * side * (t.rail + 14.0), t.P[i].z + t.R[i].z * side * (t.rail + 14.0)) - t.P[i].y
-			var ok := high > 7.0 and t.dist_to_road(t.P[i] + t.R[i] * side * (t.rail + 14.0)) > t.rail + 4.0
+			var ok := high > 12.0 and t.dist_to_road(t.P[i] + t.R[i] * side * (t.rail + 14.0)) > t.rail + 4.0
 			var row: Array = []
 			if ok:
 				for l in lats:
@@ -1041,6 +1057,24 @@ func _real_features() -> void:
 				_vending(at - face * 2.0 + t.D[i] * 3.0, face)
 			"street_lamp":
 				_lamp(at, face, true)
+	# the blue overhead direction sign at the Ikaho end (seen on Street View)
+	var si := t.index_at_s(t.finish_s - 60.0)
+	var sd: Vector3 = t.D[si]
+	var sr: Vector3 = t.R[si]
+	var base: Vector3 = t.P[si]
+	var gray := _mat(Color(0.55, 0.57, 0.6), 0.5)
+	_piece(_boxm(Vector3(0.25, 6.5, 0.25)), gray, Transform3D(Basis(), base + sr * (t.rail + 0.8) + Vector3.UP * 3.25))
+	_piece(_boxm(Vector3(0.15, 0.15, t.rail + 1.5)), gray, Transform3D(Basis.looking_at(-sr, Vector3.UP), base + sr * 0.7 + Vector3.UP * 6.3))
+	var board := _piece(_boxm(Vector3(4.2, 2.0, 0.1)), _emissive(Color(0.05, 0.22, 0.7), 0.35), Transform3D(Basis.looking_at(sd, Vector3.UP), base + Vector3.UP * 5.4))
+	for line in [["伊香保  Ikaho  ↑", 0.45], ["渋川  Shibukawa  →", -0.35]]:
+		var lab := Label3D.new()
+		lab.text = line[0]
+		lab.font_size = 64
+		lab.pixel_size = 0.0075
+		lab.outline_size = 0
+		lab.modulate = Color(0.95, 0.95, 0.95)
+		lab.transform = Transform3D(Basis.looking_at(-sd, Vector3.UP), base + Vector3.UP * (5.4 + line[1]) - sd * 0.06)
+		_add(lab)
 	# bridges: concrete parapets instead of guardrails
 	var para := _mat(Color(0.55, 0.58, 0.64), 0.8)
 	for br in t.features.get("bridges", []):
