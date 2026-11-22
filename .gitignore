@@ -17,3 +17,5 @@ tools/osm/haruna_osm.json
 
 # GSI tile caches (re-downloadable)
 tools/osm/*.jpg
+
+build/
