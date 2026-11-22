@@ -17,6 +17,7 @@ func build(track: Track) -> void:
 	foliage_mat = ShaderMaterial.new()
 	foliage_mat.shader = load("res://shaders/foliage.gdshader")
 	_walls()
+	_tunnels()
 	_slope_protection()
 	_trees()
 	_bushes()
@@ -171,6 +172,8 @@ func _walls() -> void:
 			var h0 := heights[i - 1]
 			var h1 := heights[i]
 			if h0 < 1.4 and h1 < 1.4:
+				continue
+			if t.in_tunnel(i):
 				continue
 			var wall_mid: Vector3 = t.P[i] + t.R[i] * lat
 			if t.dist_to_road(wall_mid) < t.rail + 0.5:
@@ -1249,3 +1252,57 @@ func _chevron_rows() -> void:
 				face = -face
 			_piece(_boxm(Vector3(1.9, 0.75, 0.04)), m, Transform3D(Basis.looking_at(t.D[k] * side, Vector3.UP), p + Vector3.UP * 0.95))
 		i = j
+
+
+# ------------------------------------------------------------------ tunnels
+
+func _tunnels() -> void:
+	# concrete tube with a row of orange sodium lamps, like the anime tunnels
+	var wall := _mat(Color(0.42, 0.42, 0.44), 0.9)
+	wall.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var lamp := _emissive(Color(1.0, 0.62, 0.22), 4.0)
+	for tn in t.tunnels:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var w := t.rail + 0.3
+		# cross-section: wall up, curved roof, wall down (lateral, height)
+		var prof := [[-w, -0.2], [-w, 3.2], [-w * 0.75, 4.6], [-w * 0.35, 5.3], [0.0, 5.5],
+			[w * 0.35, 5.3], [w * 0.75, 4.6], [w, 3.2], [w, -0.2]]
+		var i0: int = maxi(int(tn[0]), 1)
+		var i1: int = mini(int(tn[1]), t.P.size() - 1)
+		for i in range(i0, i1 + 1):
+			for k in prof.size() - 1:
+				var a: Vector3 = t.P[i - 1] + t.R[i - 1] * prof[k][0] + Vector3.UP * prof[k][1]
+				var b: Vector3 = t.P[i - 1] + t.R[i - 1] * prof[k + 1][0] + Vector3.UP * prof[k + 1][1]
+				var c: Vector3 = t.P[i] + t.R[i] * prof[k][0] + Vector3.UP * prof[k][1]
+				var d: Vector3 = t.P[i] + t.R[i] * prof[k + 1][0] + Vector3.UP * prof[k + 1][1]
+				var mid := (a + d) * 0.5
+				var inward: Vector3 = (t.P[i] + Vector3.UP * 2.5 - mid).normalized()
+				st.set_normal(inward)
+				st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
+				st.add_vertex(b); st.add_vertex(d); st.add_vertex(c)
+			if (i - i0) % 6 == 0:
+				var lp: Vector3 = t.P[i] + t.R[i] * (-w * 0.6) + Vector3.UP * 4.85
+				_piece(_boxm(Vector3(0.3, 0.12, 1.2)), lamp, Transform3D(Basis.looking_at(t.D[i], Vector3.UP), lp))
+				if (i - i0) % 12 == 0:
+					var l := OmniLight3D.new()
+					l.light_color = Color(1.0, 0.62, 0.3)
+					l.light_energy = 1.6
+					l.omni_range = 13.0
+					l.position = lp + Vector3.DOWN * 0.6
+					_add(l)
+		st.set_material(wall)
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		_add(mi)
+		# portal faces
+		for end in [i0, i1]:
+			var fwd: Vector3 = t.D[end] * (-1.0 if end == i0 else 1.0)
+			# concrete facade above the arch (the opening itself stays clear)
+			var pc: Vector3 = t.P[end] + Vector3.UP * 9.1 + fwd * 0.3
+			_piece(_boxm(Vector3(w * 2.0 + 3.0, 7.0, 0.6)), _mat(Color(0.5, 0.5, 0.52), 0.9),
+				Transform3D(Basis.looking_at(fwd, Vector3.UP), pc))
+			for sd: float in [-1.0, 1.0]:
+				var side_p: Vector3 = t.P[end] + t.R[end] * sd * (w + 1.0) + Vector3.UP * 3.0 + fwd * 0.3
+				_piece(_boxm(Vector3(2.0, 6.0, 0.6)), _mat(Color(0.5, 0.5, 0.52), 0.9),
+					Transform3D(Basis.looking_at(fwd, Vector3.UP), side_p))

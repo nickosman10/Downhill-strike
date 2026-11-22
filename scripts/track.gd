@@ -141,6 +141,8 @@ func _load_traced(path: String) -> void:
 	features = data.get("features", {})
 	sign_text = data.get("sign", [])
 	style = data.get("style", {})
+	for tn in data.get("tunnels", []):
+		tunnels.append([int(tn[0]), int(tn[1])])
 	var rails: Array = data.get("rails", [])
 	if rails.size() == 2:
 		rail_l = rails[0]
@@ -715,6 +717,14 @@ var towns_data: Array = []
 var features: Dictionary = {}
 var sign_text: Array = []
 var style: Dictionary = {}
+var tunnels: Array = []
+
+
+func in_tunnel(i: int) -> bool:
+	for tn in tunnels:
+		if i >= tn[0] - 1 and i <= tn[1] + 1:
+			return true
+	return false
 var rail_l := ""
 var rail_r := ""
 var bridge_idx := {}
@@ -723,7 +733,7 @@ var bridge_idx := {}
 ## Whether a guardrail stands at sample i on this side (real data on traced
 ## courses; everywhere on the placeholder courses).
 func has_rail(i: int, side: float) -> bool:
-	if bridge_idx.has(i):
+	if bridge_idx.has(i) or in_tunnel(i):
 		return false
 	var flags := rail_l if side < 0.0 else rail_r
 	if flags.is_empty():

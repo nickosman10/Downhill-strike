@@ -226,6 +226,29 @@ def catmull(pts, per_seg=6):
     return out
 
 
+def find_structures(c, pts, to_local):
+    """Tunnel / bridge spans on the course from OSM, as sample index ranges."""
+    d = json.load(open(os.path.join(HERE, c["features"])))
+    N, W = d["nodes"], d["ways"]
+    tree = cKDTree(np.array(pts))
+    out = []
+    for w in W.values():
+        t = w["tags"]
+        if "highway" not in t or not (t.get("tunnel") in ("yes", "building_passage") or t.get("bridge") == "yes"):
+            continue
+        ends = [w["nodes"][0], w["nodes"][-1]]
+        if not all(e in N for e in ends):
+            continue
+        hits = [tree.query(to_local(*N[e])) for e in ends]
+        if max(h[0] for h in hits) > 8.0:
+            continue
+        i0, i1 = sorted(int(h[1]) for h in hits)
+        if i1 - i0 < 2:
+            continue
+        out.append(("tunnel" if t.get("tunnel") else "bridge", i0, i1))
+    return sorted(out, key=lambda x: x[1])
+
+
 def limit_radius(pts, rmin):
     """Round off corners tighter than rmin by local smoothing (keeps the shape)."""
     P = np.array(pts)
@@ -290,7 +313,23 @@ def main(cid):
     # the course is downhill only, so smooth and make it non-increasing
     lls = np.array([to_ll(x, z) for x, z in pts])
     ys = dem_points(lls[:, 0], lls[:, 1])
+    # tunnels and bridges: the survey gives the mountain above / the valley
+    # below, so the road runs straight between the two ends instead
+    structs = find_structures(c, pts, to_local)
+    for kind, i0, i1 in structs:
+        a, b = max(i0 - 3, 0), min(i1 + 3, len(ys) - 1)
+        ys[a:b + 1] = np.linspace(ys[a], ys[b], b - a + 1)
     ys = gaussian_filter(ys, 5)      # lidar ground -> smooth road surface
+    # no real road is steeper than ~15 %: relax any leftover spikes
+    for _ in range(200):
+        g = np.diff(ys) / STEP
+        bad = np.where(np.abs(g) > 0.15)[0]
+        if len(bad) == 0:
+            break
+        for i in bad:
+            lo_, hi_ = max(i - 4, 0), min(i + 5, len(ys))
+            ys[lo_:hi_] = gaussian_filter(ys[lo_:hi_], 1.5)
+    print(f"structures: {[(k, (i1 - i0) * 2) for k, i0, i1 in structs]}")
     ups = int((np.diff(ys) > 0.02).sum())
     print(f"real road profile: {ups} rising samples of {len(ys)}")
     top = ys[0]
@@ -323,6 +362,9 @@ def main(cid):
     pairs = tr.query_pairs(2 * RAIL + 1.0)
     bad = sum(1 for a, b in pairs if abs(a - b) > 40 and abs(xyz[a][1] - xyz[b][1]) < 6.0)
     print(f"overlap pairs {bad}")
+    tunnels = [[i0 + 15, i1 + 15] for k, i0, i1 in structs if k == "tunnel"]
+    bridges = [[i0 + 15, i1 + 15] for k, i0, i1 in structs if k == "bridge"]
+    c["_tunnels"], c["_bridges"] = tunnels, bridges
     terrain, trees, lake = build_terrain(cid, xyz, top, to_ll, to_local, c)
     far = build_far_terrain(cid, xyz, top, to_ll)
     feats, rails = export_features(c, xyz, to_local, terrain)
@@ -331,7 +373,7 @@ def main(cid):
         x, z = to_local(la, lo_)
         towns.append({"name": name, "x": round(x, 1), "z": round(z, 1), "y": round(dem(la, lo_) - top, 1), "r": rad, "n": cnt})
     out = {"id": cid, "step": STEP, "points": [[round(v, 3) for v in p] for p in xyz], "hairpins": hp,
-           "terrain": terrain, "far_terrain": far, "features": feats, "rails": rails, "sign": c.get("sign", []), "style": c.get("style", {}), "trees": trees, "lake": lake, "towns": towns,
+           "terrain": terrain, "far_terrain": far, "features": feats, "rails": rails, "sign": c.get("sign", []), "style": c.get("style", {}), "tunnels": tunnels, "trees": trees, "lake": lake, "towns": towns,
            "geo": {"lat0": lat0, "lon0": lon0, "top_asl": round(float(top), 1), "source": "OpenStreetMap Route 33 + GSI 5m DEM + GSI aerial photo"}}
     json.dump(out, open(os.path.join(HERE, "..", "tracks", cid + ".json"), "w"), separators=(",", ":"))
 
@@ -378,7 +420,7 @@ def export_features(c, xyz, to_local, terrain):
                                        "h": h if h > 0 else (lv * 3.2 if lv else 6.5), "kind": t["building"]})
         elif t.get("amenity") == "parking" and near < 120:
             feats["parking"].append([[round(x, 1), round(z, 1)] for x, z in pts])
-        elif t.get("bridge") and t.get("ref") == "33":
+        elif t.get("bridge") == "yes" and "highway" in t and near < 6:
             ss = sorted(tree.query(p)[1] for p in pts)
             feats["bridges"].append([int(ss[0]), int(ss[-1])])
     for nid, t in PN.items():
@@ -457,9 +499,19 @@ def build_terrain(cid, xyz, top, to_ll, to_local, c, cell=5.0, margin=260.0):
     width = np.where(natural > hr + 0.5, 4.0, 6.0)
     t = np.clip((d - (RAIL + 1.0)) / width, 0.0, 1.0)
     t = t * t * (3 - 2 * t)
-    h = ((hr - 0.6) * (1 - t) + natural * t).reshape(nz, nx)
+    in_tunnel = np.zeros(len(P), bool)
+    for i0, i1 in c.get("_tunnels", []):
+        in_tunnel[i0:i1 + 1] = True
+    on_bridge = np.zeros(len(P), bool)
+    for i0, i1 in c.get("_bridges", []):
+        on_bridge[i0:i1 + 1] = True
+    cut = (hr - 0.6) * (1 - t) + natural * t
+    cut = np.where(on_bridge[idx], np.minimum(natural, hr - 1.5), cut)
+    cut = np.where(in_tunnel[idx] & (natural > hr + 6.0), natural, cut)
+    h = cut.reshape(nz, nx)
     dd = d.reshape(nz, nx)
-    h[dd < RAIL + 1.0] = (hr - 0.6).reshape(nz, nx)[dd < RAIL + 1.0]
+    flat = (dd < RAIL + 1.0) & ~(in_tunnel[idx].reshape(nz, nx) & (natural.reshape(nz, nx) > hr.reshape(nz, nx) + 6.0)) & ~on_bridge[idx].reshape(nz, nx)
+    h[flat] = (hr - 0.6).reshape(nz, nx)[flat]
     fname = f"{cid}_terrain.bin"
     h.astype("<f4").tofile(os.path.join(HERE, "..", "tracks", fname))
     # real aerial photo draped over the terrain, resampled onto the local grid
