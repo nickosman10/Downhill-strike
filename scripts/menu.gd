@@ -116,7 +116,8 @@ func _refresh() -> void:
 			mode_text = "Side-by-side downhill battle against the local ace, [b]%s[/b]. First to the bottom wins.\nKill your headlights while chasing to rattle them." % c.rival.name
 		Game.Mode.DAWN_DELIVERY:
 			mode_text = "The early-morning delivery run. A cup of water sits on the dash: arrive with at least half of it. Smooth is fast."
-	info.text = "[b]%s[/b]  ·  %s\n%s\n\nLength %.1f km   ·   Drop %d m   ·   Hairpins %d   ·   Width %.1f m\nBest (%s): %s   ·   Best drift score: %d\n\n%s\n\n[color=#9aa]Controls: W/S or ↑/↓ throttle/brake · A/D steer · Space handbrake · L headlights · C camera · R reset · Esc menu · Gamepad supported\nTechniques: handbrake drift · inertia drift (flick left-right) · brake drift · gutter hook (inside wheels in the hairpin ditch) · blind attack (lights off at night = x2 points)[/color]" % [
+	var music_line := "Music: %d song(s) in your music folder" % Music.tracks.size() if Music.tracks.size() > 0 else "Music: none yet. Put your own .ogg/.mp3 Eurobeat files in the \"music\" folder (see music/README.md)"
+	info.text = music_line + "\n\n" + "[b]%s[/b]  ·  %s\n%s\n\nLength %.1f km   ·   Drop %d m   ·   Hairpins %d   ·   Width %.1f m\nBest (%s): %s   ·   Best drift score: %d\n\n%s\n\n[color=#9aa]Controls: W/S or ↑/↓ throttle/brake · A/D steer · Space handbrake · L headlights · C camera · R reset · Esc menu · M next song · N music on/off · Gamepad supported\nTechniques: handbrake drift · inertia drift (flick left-right) · brake drift · gutter hook (inside wheels in the hairpin ditch) · blind attack (lights off at night = x2 points)[/color]" % [
 		c.name, c.region, c.blurb, t.length / 1000.0, int(t.drop), t.hairpins, c.width,
 		Game.MODE_NAMES[Game.mode], Game.format_time(best) if best > 0.0 else "--",
 		Game.best_score(c.id), mode_text]

@@ -5,3 +5,8 @@ export/
 
 # reference images downloaded from the wiki (not ours to redistribute)
 reference/
+
+# your own songs stay on your machine (copyrighted music must not be committed)
+music/*
+!music/README.md
+!music/.gdignore

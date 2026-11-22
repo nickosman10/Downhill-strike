@@ -60,6 +60,9 @@ func _ready() -> void:
 	hud.build(self)
 	hud.cup.visible = dawn or mode == Game.Mode.TIME_ATTACK
 
+	Music.now_playing.connect(func(title): hud.show_popup("♪ " + title, Color(0.7, 0.85, 1.0)))
+	if Music.current != "":
+		hud.show_popup("♪ " + Music.current.get_file().get_basename(), Color(0.7, 0.85, 1.0))
 	audio = EngineAudio.new()
 	audio.car = car
 	add_child(audio)
