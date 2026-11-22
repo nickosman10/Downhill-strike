@@ -24,6 +24,11 @@ func build(track: Track) -> void:
 	_rumble_strips()
 	_ridges()
 	_city()
+	_street_lamps()
+	_summit_area()
+	_curve_signs_and_mirrors()
+	_skid_marks()
+	_village()
 
 
 func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
@@ -529,3 +534,287 @@ func _city() -> void:
 	plane.material_override = fm
 	plane.position = Vector3(finish.x, floor_y - 2.0, finish.z)
 	_add(plane)
+
+
+# ------------------------------------------------------------------ roadside life
+# Touches seen in Akina / Initial Drift Online / Drift86: lamp pools on a dark
+# road, a summit car park with a rest house and glowing vending machines,
+# curve mirrors, yellow warning signs, skid marks, a village at the bottom.
+
+func _emissive(c: Color, energy := 2.0) -> StandardMaterial3D:
+	var m := _mat(c, 0.4)
+	m.emission_enabled = true
+	m.emission = c
+	m.emission_energy_multiplier = energy
+	return m
+
+
+func _piece(mesh: Mesh, mat: Material, xf: Transform3D) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	mi.transform = xf
+	_add(mi)
+	return mi
+
+
+func _boxm(size: Vector3) -> BoxMesh:
+	var b := BoxMesh.new()
+	b.size = size
+	return b
+
+
+func _clear_spot(p: Vector3, need: float) -> bool:
+	return t.dist_to_road(p) >= need
+
+
+func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
+	var pole_mat := _mat(Color(0.45, 0.47, 0.52), 0.5)
+	var col := Color(1.0, 0.72, 0.42) if warm else Color(0.85, 0.92, 1.0)
+	var pole := CylinderMesh.new()
+	pole.top_radius = 0.07
+	pole.bottom_radius = 0.1
+	pole.height = 7.5
+	pole.radial_segments = 6
+	_piece(pole, pole_mat, Transform3D(Basis(), base + Vector3.UP * 3.75))
+	var arm_basis := Basis.looking_at(toward_road, Vector3.UP)
+	_piece(_boxm(Vector3(0.08, 0.08, 1.8)), pole_mat, Transform3D(arm_basis, base + Vector3.UP * 7.4 + toward_road * 0.9))
+	_piece(_boxm(Vector3(0.36, 0.1, 0.6)), _emissive(col, 5.0), Transform3D(arm_basis, base + Vector3.UP * 7.3 + toward_road * 1.8))
+	var l := SpotLight3D.new()
+	l.light_color = col
+	l.light_energy = 3.5
+	l.spot_range = 16.0
+	l.spot_angle = 55.0
+	l.spot_attenuation = 0.9
+	l.transform = Transform3D(Basis.looking_at(Vector3.DOWN, toward_road), base + Vector3.UP * 7.1 + toward_road * 1.8)
+	_add(l)
+
+
+func _street_lamps() -> void:
+	# a lamp every couple of hundred metres, plus extra at the hairpins
+	var next_s := 120.0
+	var n := t.P.size()
+	for i in n:
+		var tight := absf(t.K[i]) > 1.0 / 20.0
+		if t.S[i] < next_s and not (tight and t.S[i] > next_s - 120.0):
+			continue
+		var side := -signf(t.K[i]) if absf(t.K[i]) > 0.002 else (1.0 if (i / 50) % 2 == 0 else -1.0)
+		var base: Vector3 = t.P[i] + t.R[i] * side * (t.rail + 0.7)
+		if not _clear_spot(base, t.rail + 0.5) or wall_sides.has(Vector2i(i, int(side))):
+			continue
+		_lamp(base, -t.R[i] * side, true)
+		next_s = t.S[i] + rng.randf_range(170.0, 260.0)
+
+
+func _vending(p: Vector3, facing: Vector3) -> void:
+	var b := Basis.looking_at(-facing, Vector3.UP)
+	var palette := [Color(0.85, 0.12, 0.1), Color(0.1, 0.35, 0.85), Color(0.95, 0.95, 0.95)]
+	var body := _mat(palette[rng.randi() % 3], 0.4)
+	_piece(_boxm(Vector3(1.0, 1.85, 0.75)), body, Transform3D(b, p + Vector3.UP * 0.92))
+	# bright display window and drinks row
+	_piece(_boxm(Vector3(0.8, 0.9, 0.02)), _emissive(Color(0.95, 0.97, 1.0), 2.5), Transform3D(b, p + Vector3.UP * 1.3 + facing * 0.38))
+	_piece(_boxm(Vector3(0.8, 0.12, 0.02)), _emissive(Color(1.0, 0.5, 0.2), 1.5), Transform3D(b, p + Vector3.UP * 0.75 + facing * 0.38))
+	var l := OmniLight3D.new()
+	l.light_color = Color(0.9, 0.95, 1.0)
+	l.light_energy = 1.2
+	l.omni_range = 6.0
+	l.position = p + Vector3.UP * 1.3 + facing * 1.0
+	_add(l)
+
+
+func _building(p: Vector3, facing: Vector3, size: Vector3, wall: Color, roof: Color, lit := true) -> void:
+	var b := Basis.looking_at(-facing, Vector3.UP)
+	_piece(_boxm(size), _mat(wall, 0.85), Transform3D(b, p + Vector3.UP * size.y * 0.5))
+	# low pitched roof
+	var prism := PrismMesh.new()
+	prism.size = Vector3(size.x + 0.6, 1.2, size.z + 0.6)
+	_piece(prism, _mat(roof, 0.7), Transform3D(b, p + Vector3.UP * (size.y + 0.6)))
+	if lit:
+		var win := _emissive(Color(1.0, 0.82, 0.5), 1.8)
+		for k in 2:
+			var off := (k - 0.5) * size.x * 0.5
+			_piece(_boxm(Vector3(size.x * 0.25, 0.8, 0.02)), win,
+				Transform3D(b, p + Vector3.UP * (size.y * 0.55) + facing * (size.z * 0.5 + 0.01) + b.x * off))
+
+
+func _summit_area() -> void:
+	# car park beside the start, like the lakeside lot at the top of the pass
+	var i := t.index_at_s(t.start_s + 5.0)
+	var side := 1.0 if not wall_sides.has(Vector2i(i, 1)) else -1.0
+	var right: Vector3 = t.R[i] * side
+	var fwd: Vector3 = t.D[i]
+	var centre: Vector3 = t.P[i] + right * (t.rail + 10.0)
+	centre.y = t.P[i].y - 0.04
+	var lot := MeshInstance3D.new()
+	lot.mesh = _boxm(Vector3(16.0, 0.1, 34.0))
+	lot.material_override = _mat(Color(0.16, 0.17, 0.2), 0.8)
+	lot.transform = Transform3D(Basis.looking_at(fwd, Vector3.UP), centre)
+	_add(lot)
+	for k in 5:
+		var line_p := centre + fwd * (-12.0 + k * 6.0) + right * 3.0 + Vector3.UP * 0.06
+		_piece(_boxm(Vector3(0.12, 0.01, 4.5)), _mat(Color(0.85, 0.85, 0.82)), Transform3D(Basis.looking_at(right, Vector3.UP), line_p))
+	_building(centre + right * 9.0 + fwd * 6.0, -right, Vector3(7.0, 3.0, 5.0), Color(0.7, 0.68, 0.6), Color(0.25, 0.28, 0.35))
+	_vending(centre + right * 6.0 - fwd * 2.0, -right)
+	_vending(centre + right * 6.0 - fwd * 3.2, -right)
+	_lamp(centre - right * 7.5 + fwd * 10.0, right, false)
+	_lamp(centre - right * 7.5 - fwd * 10.0, right, false)
+	# a couple of parked cars
+	var colors := [Color(0.75, 0.1, 0.1), Color(0.15, 0.15, 0.18), Color(0.9, 0.9, 0.92)]
+	for k in 3:
+		var m := CarModel.create(["coupe", "sedan", "hatch"][k], colors[k], colors[k].darkened(0.4))
+		m.set_lights(false, true)
+		m.position = centre + right * 3.0 + fwd * (-9.0 + k * 6.0)
+		m.basis = Basis.looking_at(right, Vector3.UP) * Basis().scaled(Vector3.ONE * 0.92)
+		_add(m)
+
+
+func _sign_texture() -> ImageTexture:
+	# yellow diamond with a black curve arrow
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 64:
+			var inside := absf(x - 31.5) + absf(y - 31.5) < 31.0
+			var border := absf(x - 31.5) + absf(y - 31.5) > 27.5
+			var c := Color(0, 0, 0, 0)
+			if inside:
+				c = Color(0.05, 0.05, 0.05) if border else Color(0.98, 0.78, 0.05)
+				var dx := x - 30.0
+				var dy := y - 38.0
+				var r := sqrt(dx * dx + dy * dy)
+				if r > 9.0 and r < 14.0 and dy < 0.0 and dx > -14.0:
+					c = Color(0.05, 0.05, 0.05)
+				if y > 37 and y < 50 and x > 16 and x < 21:
+					c = Color(0.05, 0.05, 0.05)
+				if absf(y - 25.0) < 6.0 - absf(x - 44.0) * 0.6 and x > 38 and x < 50:
+					c = Color(0.05, 0.05, 0.05)
+			img.set_pixel(x, y, c)
+	return ImageTexture.create_from_image(img)
+
+
+func _curve_signs_and_mirrors() -> void:
+	var sign_mat := _mat(Color.WHITE, 0.5)
+	sign_mat.albedo_texture = _sign_texture()
+	sign_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	sign_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	sign_mat.emission_enabled = true
+	sign_mat.emission_texture = sign_mat.albedo_texture
+	sign_mat.emission = Color(0.35, 0.35, 0.35)
+	var pole_mat := _mat(Color(0.6, 0.62, 0.65), 0.4)
+	var orange := _mat(Color(0.95, 0.45, 0.1), 0.5)
+	var mirror_mat := _mat(Color(0.75, 0.8, 0.9), 0.05)
+	mirror_mat.metallic = 1.0
+	var n := t.P.size()
+	var i := 1
+	var corner := 0
+	while i < n:
+		if absf(t.K[i]) < 1.0 / 30.0 or absf(t.K[i - 1]) >= 1.0 / 30.0:
+			i += 1
+			continue
+		# warning sign ~55 m before the corner, on the left verge
+		var si := t.index_at_s(maxf(t.S[i] - 55.0, 5.0))
+		var sp: Vector3 = t.P[si] + t.R[si] * -1.0 * (t.rail + 0.6)
+		if _clear_spot(sp, t.rail + 0.3):
+			var face: Vector3 = -t.D[si]
+			var q := QuadMesh.new()
+			q.size = Vector2(0.9, 0.9)
+			_piece(q, sign_mat, Transform3D(Basis.looking_at(-face, Vector3.UP), sp + Vector3.UP * 2.0))
+			_piece(_boxm(Vector3(0.06, 2.0, 0.06)), pole_mat, Transform3D(Basis(), sp + Vector3.UP * 1.0))
+		# curve mirror on the outside of every other tight corner
+		if corner % 2 == 0:
+			var j := mini(i + 6, n - 1)
+			var side := -signf(t.K[i])
+			var mp: Vector3 = t.P[j] + t.R[j] * side * (t.rail + 0.5)
+			if _clear_spot(mp, t.rail + 0.3):
+				var post := CylinderMesh.new()
+				post.top_radius = 0.045
+				post.bottom_radius = 0.045
+				post.height = 2.6
+				post.radial_segments = 6
+				_piece(post, orange, Transform3D(Basis(), mp + Vector3.UP * 1.3))
+				var disc := CylinderMesh.new()
+				disc.top_radius = 0.42
+				disc.bottom_radius = 0.42
+				disc.height = 0.05
+				disc.radial_segments = 16
+				var look: Vector3 = (-t.D[j] - t.R[j] * side * 0.6).normalized()
+				var b := Basis.looking_at(look, Vector3.UP) * Basis(Vector3.RIGHT, PI / 2)
+				_piece(disc, mirror_mat, Transform3D(b, mp + Vector3.UP * 2.75))
+				var rim := CylinderMesh.new()
+				rim.top_radius = 0.47
+				rim.bottom_radius = 0.47
+				rim.height = 0.04
+				rim.radial_segments = 16
+				_piece(rim, orange, Transform3D(b, mp + Vector3.UP * 2.75 - look * 0.03))
+		corner += 1
+		i += 15
+
+
+func _skid_marks() -> void:
+	# black rubber laid down through the hairpins by years of drifting
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := t.P.size()
+	var i := 0
+	while i < n:
+		if absf(t.K[i]) < 1.0 / 35.0:
+			i += 1
+			continue
+		var j := i
+		while j < n and absf(t.K[j]) >= 1.0 / 35.0:
+			j += 1
+		var inner := signf(t.K[i])
+		for set_k in rng.randi_range(2, 4):
+			var s0: float = t.S[maxi(i - 12, 0)] + rng.randf_range(-5.0, 5.0)
+			var s1: float = t.S[mini(j + 10, n - 1)] + rng.randf_range(-5.0, 5.0)
+			var swing := rng.randf_range(0.6, 1.0) * (t.hw - 1.0)
+			for wheel in [-0.68, 0.68]:
+				var prev_l := Vector3.INF
+				var prev_r := Vector3.INF
+				var steps := int((s1 - s0) / 2.0)
+				for k in steps + 1:
+					var s := s0 + (s1 - s0) * k / maxf(steps, 1.0)
+					var f := float(k) / maxf(steps, 1.0)
+					# outside-inside-outside arc
+					var lat: float = -inner * swing * cos(f * PI) * 0.8 + inner * swing * 0.2 + wheel
+					var c := t.point_at(s, clampf(lat, -t.hw + 0.2, t.hw - 0.2)) + Vector3.UP * 0.011
+					var r := t.dir_at(s).cross(Vector3.UP) * 0.11
+					var l := c - r
+					var rr := c + r
+					if prev_l != Vector3.INF:
+						st.set_normal(Vector3.UP)
+						st.add_vertex(prev_l); st.add_vertex(l); st.add_vertex(prev_r)
+						st.add_vertex(prev_r); st.add_vertex(l); st.add_vertex(rr)
+					prev_l = l
+					prev_r = rr
+		i = j + 1
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.0, 0.0, 0.0, 0.45)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.9
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	st.set_material(m)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	_add(mi)
+
+
+func _village() -> void:
+	# houses with lit windows near the bottom of the pass
+	var n := t.P.size()
+	var placed := 0
+	var walls := [Color(0.72, 0.68, 0.6), Color(0.6, 0.62, 0.66), Color(0.75, 0.72, 0.65)]
+	var roofs := [Color(0.22, 0.26, 0.34), Color(0.35, 0.18, 0.15), Color(0.2, 0.22, 0.25)]
+	for i in range(n - 1, maxi(n - 260, 0), -7):
+		if placed >= 9:
+			break
+		var side := 1.0 if placed % 2 == 0 else -1.0
+		var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + rng.randf_range(9.0, 16.0))
+		if not _clear_spot(p, t.rail + 7.0):
+			continue
+		p.y = minf(t.terrain_height(p.x, p.z), t.P[i].y) - 0.2
+		var face: Vector3 = -t.R[i] * side
+		_building(p, face, Vector3(rng.randf_range(6.0, 9.0), rng.randf_range(3.0, 5.5), rng.randf_range(5.0, 7.0)),
+			walls[placed % 3], roofs[placed % 3], rng.randf() < 0.75)
+		if placed == 2:
+			_vending(t.P[i] + t.R[i] * side * (t.rail + 2.5), face)
+		placed += 1

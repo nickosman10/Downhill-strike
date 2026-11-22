@@ -62,7 +62,7 @@ func _run() -> void:
 	Game.course_index = course_idx
 	var menu := Menu.new()
 	add_child(menu)
-	await _frames(5)
+	await _frames(40)
 	await _save("01_menu")
 	menu.queue_free()
 

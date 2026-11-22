@@ -29,7 +29,7 @@ func setup(c: Dictionary, m: int) -> void:
 
 func _ready() -> void:
 	var dawn := mode == Game.Mode.DAWN_DELIVERY
-	_build_environment(dawn)
+	Race.build_environment(self, dawn)
 	track = Track.new()
 	add_child(track)
 	track.build(course)
@@ -61,14 +61,17 @@ func _ready() -> void:
 	hud.cup.visible = dawn or mode == Game.Mode.TIME_ATTACK
 
 	Music.now_playing.connect(func(title): hud.show_popup("♪ " + title, Color(0.7, 0.85, 1.0)))
-	if Music.current != "":
-		hud.show_popup("♪ " + Music.current.get_file().get_basename(), Color(0.7, 0.85, 1.0))
+	if Music.in_menu:
+		Music.play_race()
+	else:
+		Music.set_climax(false)
+		hud.show_popup("♪ " + Music.current.get("title", ""), Color(0.7, 0.85, 1.0))
 	audio = EngineAudio.new()
 	audio.car = car
 	add_child(audio)
 
 
-func _build_environment(dawn: bool) -> void:
+static func build_environment(parent: Node, dawn: bool) -> void:
 	var env := Environment.new()
 	var sky_mat := ProceduralSkyMaterial.new()
 	var light := DirectionalLight3D.new()
@@ -118,8 +121,8 @@ func _build_environment(dawn: bool) -> void:
 	env.adjustment_saturation = 1.05
 	var we := WorldEnvironment.new()
 	we.environment = env
-	add_child(we)
-	add_child(light)
+	parent.add_child(we)
+	parent.add_child(light)
 
 
 func _physics_process(dt: float) -> void:
@@ -142,6 +145,8 @@ func _physics_process(dt: float) -> void:
 				get_tree().create_timer(0.8).timeout.connect(func(): if state == State.RACING: hud.set_center(""))
 		State.RACING:
 			race_time += dt
+			if car.s > track.finish_s * 0.82:
+				Music.set_climax(true)
 		State.FINISHED:
 			car.control_enabled = false
 			car.hold_brake = false

@@ -16,6 +16,7 @@ func _clear() -> void:
 
 func show_menu() -> void:
 	_clear()
+	Music.play_menu()
 	var menu := Menu.new()
 	menu.start_race.connect(start_race)
 	add_child(menu)
