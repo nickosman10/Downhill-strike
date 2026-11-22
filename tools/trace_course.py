@@ -131,7 +131,7 @@ def pull_to(integ, target, sigma=40):
 
 LEAD_IN = 30.0
 TAIL = 40.0
-RAIL = 3.3 + 0.55 + 0.45
+RAIL = 3.7 + 0.55 + 0.45
 
 
 def build_3d(track, grades):
@@ -184,7 +184,10 @@ def build_terrain(cid, xyz, cell=5.0, margin=220.0):
         n = rng.standard_normal(sz)
         n = zoom(n, (nz / sz[0] * 1.02, nx / sz[1] * 1.02), order=3)[:nz, :nx]
         noise += n * amp
-    natural = base + noise.ravel() * np.clip(d / 140.0, 0.0, 1.0) + np.clip(d - 40.0, 0, None) * 0.08
+    # the land falls away from the road toward the valley: no hills rising
+    # above the driver, so the view opens out over the trees to the lowlands
+    natural = base + noise.ravel() * 0.45 * np.clip(d / 140.0, 0.0, 1.0) - np.clip(d - 22.0, 0, None) * 0.3
+    natural = np.minimum(natural, hr + 1.2 + np.clip(d - 40.0, 0, None) * 0.04)
     # hillside above the road is cut steeply (a retaining wall goes there);
     # the valley side falls away gently beyond the guardrail
     width = np.where(natural > hr + 0.5, 6.0, 30.0)
@@ -203,7 +206,7 @@ def build_terrain(cid, xyz, cell=5.0, margin=220.0):
     trees = []
     cand = rng.uniform(0, 1, (int(nx * nz * 0.5), 2)) * [mx[0] - mn[0], mx[1] - mn[1]] + mn
     dc, ic = tree.query(cand)
-    for (x, z), dd in zip(cand, dc):
+    for (x, z), dd, nearest_ic in zip(cand, dc, ic):
         if dd < RAIL + 3.0 or dd > 170.0:
             continue
         if rng.uniform() > (1.0 if dd < 70 else 0.3):
@@ -218,7 +221,13 @@ def build_terrain(cid, xyz, cell=5.0, margin=220.0):
         slope = abs(h[i0, j0 + 1] - h[i0, j0]) / cell + abs(h[i0 + 1, j0] - h[i0, j0]) / cell
         if slope > 1.4:
             continue
-        trees += [round(float(x), 1), round(float(y), 2), round(float(z), 1), round(float(rng.uniform(0.75, 1.35)), 2)]
+        # keep the downhill view open: trees below the road must not reach
+        # above it, except the odd one so the slope still reads as forest
+        sc = float(rng.uniform(0.75, 1.35))
+        road_y = P[nearest_ic, 1]
+        if y < road_y - 1.0 and y + 13.0 * sc > road_y - 1.5 and dd < 120.0 and rng.uniform() > 0.12:
+            continue
+        trees += [round(float(x), 1), round(float(y), 2), round(float(z), 1), round(sc, 2)]
     print(f"terrain {nx}x{nz} cells, {len(trees)//4} trees")
     return {"file": fname, "origin": [float(mn[0]), float(mn[1])], "cell": cell, "nx": nx, "nz": nz}, trees
 
@@ -257,7 +266,7 @@ def build(cid, overlay=None):
     h = headings(track)
     k = [(h[i + 1] - h[i]) / STEP for i in range(len(h) - 1)]
     # overlap check (horizontal); grades separate them vertically a bit but be strict
-    rail = 3.3 + 0.55 + 0.45
+    rail = RAIL
     bad = 0
     for i in range(0, len(track), 2):
         for j in range(i + 40, len(track), 2):

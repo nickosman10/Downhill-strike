@@ -80,6 +80,7 @@ static func create(tmpl: String, color: Color, lower := Color(0.05, 0.05, 0.06))
 	m.body_color = color
 	m.lower_color = lower
 	m._build()
+	m.scale = Vector3.ONE * 0.92   # sits better in a narrow touge lane
 	return m
 
 
@@ -166,7 +167,9 @@ func _region(strip: int, y: float, z: float) -> int:
 			if z > side[0] and z < side[1]:
 				return 3 if (z > bp[0] and z < bp[1]) else 2
 			return 0
-		if strip >= 7:
+		if strip == 7:
+			return 0    # A/C pillars and roof rail keep windscreen, hatch and side glass apart
+		if strip == 8:
 			if z > roof[0] and z < roof[1]:
 				return 0
 			return 2

@@ -80,10 +80,33 @@ func _run() -> void:
 	race.countdown = 0.6
 	await _frames(3)
 	race.hud.set_center("")
+	race.hud.popups.visible = false   # teleporting between spots trips the crash/score popups
 	var spots := [[500.0, "03_lakeside", false], [1500.0, "04_switchbacks", false],
 		[3200.0, "05_drift", true], [6950.0, "06_final_hairpins", false]]
 	for spot in spots:
 		await _shoot_at(race, spot[0], spot[1], spot[2])
+	# city view: a stretch heading straight for the valley
+	var tr := race.track
+	var away := Vector3(tr.P[tr.P.size() - 1].x - tr.P[0].x, 0, tr.P[tr.P.size() - 1].z - tr.P[0].z).normalized()
+	var best_i := 0
+	var best_d := -2.0
+	for i in range(200, tr.P.size() - 200, 5):
+		var dd := tr.D[i].dot(away) - absf(tr.K[i]) * 30.0
+		if dd > best_d:
+			best_d = dd
+			best_i = i
+	await _shoot_at(race, tr.S[best_i] - 40.0, "11_city_view", false)
+	# debug: high view toward the valley
+	var dc := Camera3D.new()
+	race.add_child(dc)
+	dc.far = 12000.0
+	var mid := tr.P[tr.P.size() / 2]
+	dc.global_position = mid + Vector3.UP * 40.0 - away * 50.0
+	dc.look_at(mid + away * 3000.0 + Vector3.DOWN * 300.0, Vector3.UP)
+	dc.current = true
+	await _frames(4)
+	await _save("12_valley_debug")
+	race.cam.current = true
 	# 8. car close-ups
 	race.hud.visible = false
 	car.place(80.0, 0.0)

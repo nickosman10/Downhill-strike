@@ -12,7 +12,7 @@ var _dir := Vector3.FORWARD
 func snap() -> void:
 	var f := Vector3(cos(car.yaw), 0, sin(car.yaw))
 	_dir = f
-	global_position = _keep_over_road(car.global_position - f * 6.5 + Vector3.UP * 2.4)
+	global_position = _keep_over_road(car.global_position - f * 7.4 + Vector3.UP * 2.2)
 	_look = car.global_position + Vector3.UP * 0.9
 	look_at(_look + f * 3.0, Vector3.UP)
 
@@ -32,8 +32,8 @@ func follow(dt: float) -> void:
 	var cp := car.global_position
 	match mode:
 		0, 1:
-			var dist := 6.5 if mode == 0 else 9.5
-			var height := 2.3 if mode == 0 else 3.4
+			var dist := 7.4 if mode == 0 else 10.5
+			var height := 2.2 if mode == 0 else 3.4
 			var want := cp - _dir * dist + Vector3.UP * height
 			want = _keep_over_road(want)
 			global_position = global_position.lerp(want, 1.0 - exp(-9.0 * dt))

@@ -50,7 +50,7 @@ func _ready() -> void:
 
 	cam = ChaseCamera.new()
 	cam.car = car
-	cam.far = 7000.0
+	cam.far = 12000.0
 	add_child(cam)
 	cam.current = true
 	cam.snap()

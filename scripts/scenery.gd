@@ -23,6 +23,7 @@ func build(track: Track) -> void:
 	_delineators()
 	_rumble_strips()
 	_ridges()
+	_city()
 
 
 func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
@@ -159,6 +160,9 @@ func _walls() -> void:
 			var h1 := heights[i]
 			if h0 < 1.4 and h1 < 1.4:
 				continue
+			var wall_mid: Vector3 = t.P[i] + t.R[i] * lat
+			if t.dist_to_road(wall_mid) < t.rail + 0.5:
+				continue
 			wall_sides[Vector2i(i, int(side))] = true
 			var a := t.P[i - 1] + t.R[i - 1] * lat
 			var b := t.P[i] + t.R[i] * lat
@@ -265,7 +269,7 @@ func _bushes() -> void:
 				var off: float = t.rail + rng.randf_range(0.9, 14.0 if inner else 11.0)
 				var p: Vector3 = t.P[i] + t.R[i] * side * off + t.D[i] * rng.randf_range(-1.0, 1.0)
 				p.y = t.terrain_height(p.x, p.z) - 0.2
-				if absf(p.y - t.P[i].y) > 9.0:
+				if absf(p.y - t.P[i].y) > 9.0 or t.dist_to_road(p) < t.rail + 0.9:
 					continue
 				var sc := rng.randf_range(0.8, 1.6) * (1.0 + (off - t.rail) * 0.05)
 				var k := rng.randi_range(0, 1)
@@ -303,6 +307,9 @@ func _poles() -> void:
 			last_top = Vector3.INF
 			continue
 		var base: Vector3 = t.P[i] + t.R[i] * side * (t.rail + 1.6)
+		if t.dist_to_road(base) < t.rail + 1.2:
+			last_top = Vector3.INF
+			continue
 		base.y = minf(t.terrain_height(base.x, base.z), t.P[i].y + 0.5) - 0.3
 		pole_xf.append(Transform3D(Basis(), base + Vector3.UP * 4.5))
 		var top := base + Vector3.UP * 8.6
@@ -404,8 +411,10 @@ func _ridges() -> void:
 		cen += p
 	cen /= t.P.size()
 	var top_y := t.P[0].y
+	var away := Vector3(t.P[t.P.size() - 1].x - t.P[0].x, 0, t.P[t.P.size() - 1].z - t.P[0].z).normalized()
+	var away_ang := atan2(away.z, away.x)
 	for layer in 3:
-		var radius := 2600.0 + layer * 1400.0
+		var radius := 6500.0 + layer * 1500.0
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var segs := 160
@@ -417,12 +426,15 @@ func _ridges() -> void:
 		for k in segs:
 			var a0 := TAU * k / segs
 			var a1 := TAU * (k + 1) / segs
-			var h0 := top_y + 120.0 + 260.0 * (0.5 + 0.5 * noise.get_noise_1d(a0)) + layer * 120.0
-			var h1 := top_y + 120.0 + 260.0 * (0.5 + 0.5 * noise.get_noise_1d(a1)) + layer * 120.0
+			# low hills beyond the valley, high mountains everywhere else
+			var open0 := smoothstep(0.35, 0.9, cos(a0 - away_ang))
+			var open1 := smoothstep(0.35, 0.9, cos(a1 - away_ang))
+			var h0 := top_y + lerpf(250.0, -330.0, open0) + 500.0 * (0.5 + 0.5 * noise.get_noise_1d(a0)) * (1.0 - open0 * 0.7) + layer * 160.0
+			var h1 := top_y + lerpf(250.0, -330.0, open1) + 500.0 * (0.5 + 0.5 * noise.get_noise_1d(a1)) * (1.0 - open1 * 0.7) + layer * 160.0
 			var b0 := cen + Vector3(cos(a0), 0, sin(a0)) * radius
 			var b1 := cen + Vector3(cos(a1), 0, sin(a1)) * radius
-			b0.y = t.min_y - 300.0
-			b1.y = t.min_y - 300.0
+			b0.y = t.min_y - 280.0
+			b1.y = t.min_y - 280.0
 			var u0 := Vector3(b0.x, h0, b0.z)
 			var u1 := Vector3(b1.x, h1, b1.z)
 			st.set_color(col)
@@ -437,3 +449,83 @@ func _ridges() -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = st.commit()
 		_add(mi)
+
+
+func _city() -> void:
+	# Night lights of the towns in the valley below the pass, like the view
+	# from the mountain in the anime. Placed beyond the bottom of the course.
+	var start := t.P[0]
+	var finish := t.P[t.P.size() - 1]
+	var away := Vector3(finish.x - start.x, 0, finish.z - start.z).normalized()
+	var side := away.cross(Vector3.UP)
+	var floor_y := t.min_y - 260.0
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1, 1)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.vertex_color_use_as_albedo = true
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.disable_fog = true
+	m.albedo_texture = CarModel._flare_texture()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var xf: Array = []
+	var cols: Array = []
+	var palette := [Color(1.0, 0.78, 0.45), Color(1.0, 0.9, 0.7), Color(0.75, 0.85, 1.0), Color(1.0, 0.55, 0.3)]
+	# a big town straight ahead and smaller ones off to the sides
+	var towns := [[away * 3400.0, 1300.0, 5200], [away * 2600.0 + side * 2200.0, 700.0, 1800],
+		[away * 2900.0 - side * 2400.0, 800.0, 2000], [away * 4600.0 + side * 900.0, 1100.0, 2400]]
+	for town in towns:
+		var c: Vector3 = finish + town[0]
+		var radius: float = town[1]
+		var count: int = town[2]
+		var ang := rng.randf() * PI
+		var u := Vector3(cos(ang), 0, sin(ang))
+		var v := u.cross(Vector3.UP)
+		for k in count:
+			# lights line up along a street grid, denser toward the centre
+			var r := radius * 1.4 * pow(rng.randf(), 0.8)
+			var a := rng.randf() * TAU
+			var p := c + Vector3(cos(a), 0, sin(a)) * r
+			var lu := snappedf(p.dot(u), 60.0)
+			var lv := p.dot(v)
+			if rng.randf() < 0.5:
+				lu = p.dot(u)
+				lv = snappedf(lv, 60.0)
+			p = u * lu + v * lv
+			p.y = floor_y + rng.randf_range(0.0, 6.0)
+			var sz := rng.randf_range(9.0, 18.0)
+			# billboards ignore multimesh instance positions, so face each light at the pass instead
+			var to_pass := (finish - p)
+			to_pass.y = 0.0
+			xf.append(Transform3D(Basis.looking_at(to_pass.normalized(), Vector3.UP).scaled(Vector3(sz, sz, sz)), p))
+			var col: Color = palette[rng.randi() % palette.size()]
+			cols.append(col * rng.randf_range(0.45, 0.95))
+	_mm(quad, xf, m, cols)
+	# warm haze over the towns
+	var glow := MeshInstance3D.new()
+	var gq := QuadMesh.new()
+	gq.size = Vector2(5200, 900)
+	glow.mesh = gq
+	var gm := StandardMaterial3D.new()
+	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	gm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gm.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+	gm.disable_fog = true
+	gm.albedo_texture = CarModel._shadow_texture()
+	gm.albedo_color = Color(0.4, 0.25, 0.14, 0.4)
+	glow.material_override = gm
+	glow.position = finish + away * 3400.0 + Vector3(0, floor_y - finish.y + 120.0, 0)
+	_add(glow)
+	# the valley floor the towns sit on
+	var plane := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(16000, 16000)
+	plane.mesh = pm
+	var fm := StandardMaterial3D.new()
+	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fm.albedo_color = Color(0.012, 0.02, 0.045)
+	plane.material_override = fm
+	plane.position = Vector3(finish.x, floor_y - 2.0, finish.z)
+	_add(plane)

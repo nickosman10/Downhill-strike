@@ -684,6 +684,31 @@ func _build_ground() -> void:
 # ---------------------------------------------------------------- terrain & roadside
 
 var terrain_h := PackedFloat32Array()
+var _road_grid := {}
+const ROAD_CELL := 16.0
+
+
+## Horizontal distance from a point to the nearest centerline sample anywhere
+## on the course (used to keep scenery off every leg of the road).
+func dist_to_road(p: Vector3) -> float:
+	if _road_grid.is_empty():
+		for i in P.size():
+			var k := Vector2i(floori(P[i].x / ROAD_CELL), floori(P[i].z / ROAD_CELL))
+			if not _road_grid.has(k):
+				_road_grid[k] = PackedInt32Array()
+			_road_grid[k].append(i)
+	var key := Vector2i(floori(p.x / ROAD_CELL), floori(p.z / ROAD_CELL))
+	var best := INF
+	for gx in range(-1, 2):
+		for gz in range(-1, 2):
+			var k2 := key + Vector2i(gx, gz)
+			if not _road_grid.has(k2):
+				continue
+			for i in _road_grid[k2]:
+				var dx := P[i].x - p.x
+				var dz := P[i].z - p.z
+				best = minf(best, dx * dx + dz * dz)
+	return sqrt(best)
 
 
 ## Bilinear terrain height (traced courses); falls back to the road height.
@@ -757,14 +782,6 @@ func _build_terrain() -> void:
 			mi.mesh = mesh
 			mi.material_override = mat
 			add_child(mi)
-	# far valley floor so nothing ever shows the void
-	var plane := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(8000, 8000)
-	plane.mesh = pm
-	plane.material_override = _mat(Color(0.03, 0.05, 0.03))
-	plane.position = Vector3(ox + nx * cell * 0.5, min_y - 60.0, oz + nz * cell * 0.5)
-	add_child(plane)
 
 
 func _cone(st: SurfaceTool, base: Vector3, r: float, height: float, col: Color, sides := 7) -> void:
