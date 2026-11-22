@@ -30,6 +30,87 @@ COURSES = {
             ("Maebashi", 36.3911, 139.0608, 4500, 7000),
             ("Takasaki", 36.3219, 139.0033, 4000, 5000),
         ],
+        "sign": ["伊香保  Ikaho  ↑", "渋川  Shibukawa  →"],
+    },
+    "myogi": {
+        "osm": "osm/myogi_route.json",       # from find_route.py: Route 196
+        "features": "osm/myogi_full.json",
+        "towns": [
+            ("Matsuida", 36.3196, 138.8075, 900, 1200),
+            ("Annaka", 36.3263, 138.8873, 2000, 3500),
+            ("Tomioka", 36.2597, 138.8897, 2200, 3500),
+            ("Takasaki", 36.3219, 139.0033, 4000, 5000),
+        ],
+        "sign": ["妙義  Myogi  ↑", "富岡  Tomioka  →"],
+        "style": {"red_pavement": True, "rock_faces": True},
+    },
+    "akagi": {
+        "osm": "osm/akagi_route.json",       # Route 4 (前橋赤城線)
+        "features": "osm/akagi_full.json",
+        "towns": [
+            ("Maebashi", 36.3911, 139.0608, 4500, 8000),
+            ("Isesaki", 36.3114, 139.1966, 3000, 4500),
+            ("Shibukawa", 36.4893, 139.0003, 2200, 3000),
+            ("Kiryu", 36.4054, 139.3307, 2500, 3000),
+        ],
+        "sign": ["前橋  Maebashi  ↑", "赤城山  Mt. Akagi  ←"],
+        "style": {"chevron_boards": True},
+    },
+    "usui": {
+        "osm": "osm/usui_route.json",        # old Route 18 over Usui Pass
+        "features": "osm/usui_full.json",
+        "towns": [
+            ("Yokokawa", 36.3364, 138.7380, 700, 800),
+            ("Matsuida", 36.3196, 138.8075, 900, 1200),
+            ("Annaka", 36.3263, 138.8873, 2000, 3500),
+            ("Karuizawa", 36.3483, 138.6355, 1500, 2500),
+        ],
+        "sign": ["横川  Yokokawa  ↑", "軽井沢  Karuizawa  ←"],
+        "style": {"concrete_walls": True, "wall_fences": True},
+    },
+    "irohazaka": {
+        "osm": "osm/irohazaka_route.json",   # Route 120, first (downhill) Irohazaka
+        "rmin": 5.0,                          # its hairpins really are that tight
+        "features": "osm/irohazaka_full.json",
+        "lake": {"lat": (36.725, 36.75), "lon": (139.45, 139.505)},
+        "towns": [
+            ("Nikko", 36.7480, 139.6000, 1800, 2500),
+            ("Imaichi", 36.7225, 139.6866, 2000, 2500),
+            ("Chuzenji", 36.7370, 139.4980, 500, 500),
+        ],
+        "sign": ["日光  Nikko  ↑", "中禅寺湖  Lake Chuzenji  ←"],
+    },
+    "tsuchisaka": {
+        "osm": "osm/tsuchisaka_route.json",  # Route 71 over Tsuchisaka Pass
+        "features": "osm/tsuchisaka_full.json",
+        "towns": [
+            ("Kanna", 36.1076, 138.9469, 500, 500),
+            ("Ogano", 36.0164, 139.0089, 1200, 1500),
+            ("Chichibu", 35.9919, 139.0858, 2500, 3500),
+            ("Fujioka", 36.2585, 139.0744, 2500, 3000),
+        ],
+        "sign": ["神流  Kanna  ↑", "小鹿野  Ogano  →"],
+    },
+    "nanamagari": {
+        "osm": "osm/nanamagari_route.json",  # Route 732, Hakone's seven bends
+        "features": "osm/nanamagari_full.json",
+        "towns": [
+            ("Hakone-Yumoto", 35.2328, 139.1053, 700, 1200),
+            ("Odawara", 35.2647, 139.1519, 3000, 6000),
+            ("Hiratsuka", 35.3290, 139.3497, 3500, 5000),
+        ],
+        "sign": ["小田原  Odawara  ↑", "箱根  Hakone  ←"],
+    },
+    "tsubaki": {
+        "osm": "osm/tsubaki_route.json",     # Route 75, the Tsubaki Line
+        "features": "osm/tsubaki_full.json",
+        "towns": [
+            ("Yugawara", 35.1477, 139.1086, 1200, 2000),
+            ("Atami", 35.0962, 139.0716, 1800, 3500),
+            ("Manazuru", 35.1576, 139.1373, 600, 800),
+            ("Odawara", 35.2647, 139.1519, 3000, 5000),
+        ],
+        "sign": ["湯河原  Yugawara  ↑", "箱根  Hakone  ←"],
     },
 }
 
@@ -175,11 +256,17 @@ def main(cid):
     s = [0.0]
     for a, b in zip(ll, ll[1:]):
         s.append(s[-1] + math.hypot((b[0] - a[0]) * 111320, (b[1] - a[1]) * 111320 * math.cos(math.radians(a[0]))))
-    lo, hi = sorted((c["from_s"], c["to_s"]))
-    idx = [i for i in range(len(ll)) if lo <= s[i] <= hi]
-    if c["from_s"] > c["to_s"]:
-        idx = idx[::-1]
-    sel = [ll[i] for i in idx]
+    if "from_s" in c:
+        lo, hi = sorted((c["from_s"], c["to_s"]))
+        idx = [i for i in range(len(ll)) if lo <= s[i] <= hi]
+        if c["from_s"] > c["to_s"]:
+            idx = idx[::-1]
+        sel = [ll[i] for i in idx]
+    else:
+        # whole matched segment; run it downhill (higher end first)
+        sel = list(ll)
+        if dem(*sel[0]) < dem(*sel[-1]):
+            sel = sel[::-1]
     lat0, lon0 = sel[0]
     kx = 111320 * math.cos(math.radians(lat0))
     ky = 111320.0
@@ -195,7 +282,7 @@ def main(cid):
     for _ in range(4):
         pts = [pts[0]] + [((a[0] + 2 * b[0] + q[0]) / 4, (a[1] + 2 * b[1] + q[1]) / 4) for a, b, q in zip(pts, pts[1:], pts[2:])] + [pts[-1]]
     pts = resample(pts, STEP)
-    pts = limit_radius(pts, 9.0)
+    pts = limit_radius(pts, c.get("rmin", 9.0))
     # real heights along the road; roads are smoother than the 10 m DEM and
     # the course is downhill only, so smooth and make it non-increasing
     lls = np.array([to_ll(x, z) for x, z in pts])
@@ -241,7 +328,7 @@ def main(cid):
         x, z = to_local(la, lo_)
         towns.append({"name": name, "x": round(x, 1), "z": round(z, 1), "y": round(dem(la, lo_) - top, 1), "r": rad, "n": cnt})
     out = {"id": cid, "step": STEP, "points": [[round(v, 3) for v in p] for p in xyz], "hairpins": hp,
-           "terrain": terrain, "far_terrain": far, "features": feats, "rails": rails, "trees": trees, "lake": lake, "towns": towns,
+           "terrain": terrain, "far_terrain": far, "features": feats, "rails": rails, "sign": c.get("sign", []), "style": c.get("style", {}), "trees": trees, "lake": lake, "towns": towns,
            "geo": {"lat0": lat0, "lon0": lon0, "top_asl": round(float(top), 1), "source": "OpenStreetMap Route 33 + GSI 5m DEM + GSI aerial photo"}}
     json.dump(out, open(os.path.join(HERE, "..", "tracks", cid + ".json"), "w"), separators=(",", ":"))
 
@@ -394,12 +481,12 @@ def build_terrain(cid, xyz, top, to_ll, to_local, c, cell=5.0, margin=260.0):
     from scipy.ndimage import uniform_filter
     tex = np.sqrt(np.maximum(uniform_filter(gray ** 2, 5) - uniform_filter(gray, 5) ** 2, 0))
     r_, g_, b_ = photo[:, :, 0], photo[:, :, 1], photo[:, :, 2]
-    forest = (g_ >= r_ * 0.98) & (g_ >= b_ * 0.95) & (gray < 150) & (tex > 9.0)
+    forest = (g_ >= r_ * 0.95) & (g_ >= b_ * 0.9) & (gray < 170) & (tex > 5.0)
     forest = uniform_filter(forest.astype(np.float32), 3) > 0.5
     print(f"aerial {ax}x{az} px, forest cover {forest.mean() * 100:.0f}%")
     # lake surface
     lake = None
-    if c.get("lake"):
+    if c.get("lake") and isinstance(c["lake"], dict):
         L = c["lake"]
         (la0, la1), (lo0, lo1) = L["lat"], L["lon"]
         x0, z1 = to_local(la0, lo0)

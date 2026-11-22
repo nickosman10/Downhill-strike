@@ -81,8 +81,9 @@ func _run() -> void:
 	await _frames(3)
 	race.hud.set_center("")
 	race.hud.popups.visible = false   # teleporting between spots trips the crash/score popups
-	var spots := [[500.0, "03_lakeside", false], [1500.0, "04_switchbacks", false],
-		[3200.0, "05_drift", true], [6950.0, "06_final_hairpins", false], [7450.0, "15_ikaho", false]]
+	var L: float = race.track.length
+	var spots := [[L * 0.07, "03_lakeside", false], [L * 0.2, "04_switchbacks", false],
+		[L * 0.42, "05_drift", true], [L * 0.88, "06_final_hairpins", false], [L * 0.95, "15_ikaho", false]]
 	for spot in spots:
 		await _shoot_at(race, spot[0], spot[1], spot[2])
 	# city view: a stretch heading straight for the valley
@@ -97,7 +98,7 @@ func _run() -> void:
 			best_i = i
 	await _shoot_at(race, tr.S[best_i] - 40.0, "11_city_view", false)
 	# rock-fall protection on the cut slopes
-	for spot in [[2143.0, -1.0, "13_rockfall_a"], [5031.0, 1.0, "14_rockfall_b"]]:
+	for spot in [[L * 0.28, -1.0, "13_rockfall_a"], [L * 0.65, 1.0, "14_rockfall_b"]]:
 		var si := tr.index_at_s(spot[0])
 		var sd: float = spot[1]
 		var ccam := Camera3D.new()

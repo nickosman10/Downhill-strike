@@ -139,6 +139,8 @@ func _load_traced(path: String) -> void:
 	lake_info = data.get("lake", {}) if data.get("lake") != null else {}
 	towns_data = data.get("towns", [])
 	features = data.get("features", {})
+	sign_text = data.get("sign", [])
+	style = data.get("style", {})
 	var rails: Array = data.get("rails", [])
 	if rails.size() == 2:
 		rail_l = rails[0]
@@ -229,7 +231,7 @@ func _compute_grass() -> void:
 					var dist := dv.length()
 					if dist > 40.0:
 						continue
-					if dist < rail * 2.0 + 1.0 and dy < 6.0:
+					if dist < hw * 2.0 + 0.5 and dy < 4.0:   # road surfaces would overlap
 						overlaps += 1
 					if dv.dot(R[i]) > 0.0:
 						free_r = minf(free_r, dist)
@@ -704,6 +706,8 @@ var far_h := PackedFloat32Array()
 var lake_info: Dictionary = {}
 var towns_data: Array = []
 var features: Dictionary = {}
+var sign_text: Array = []
+var style: Dictionary = {}
 var rail_l := ""
 var rail_r := ""
 var bridge_idx := {}

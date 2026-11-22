@@ -35,7 +35,8 @@ static func all() -> Array:
 			"id": "myogi",
 			"name": "Mt. Myogi",
 			"region": "Gunma",
-			"blurb": "Narrow and technical. Rocky walls, blind kinks and a long downhill straight into a vicious left-hander.",
+			"data": "res://tracks/myogi.json",
+			"blurb": "The real Route 196 under the jagged peaks of Mt. Myogi, built from OpenStreetMap and survey data. Narrow, technical and never quite straight.",
 			"width": 5.8, "grade": -7.5, "time": "night",
 			"rival": {"name": "Sora Kaneda", "car": "sedan", "color": Color(0.2, 0.22, 0.26), "skill": 1.0},
 			"segments": [
@@ -51,7 +52,8 @@ static func all() -> Array:
 			"id": "akagi",
 			"name": "Mt. Akagi",
 			"region": "Gunma",
-			"blurb": "Wide two-lane road built for speed. Long straights punctuated by heavy-braking hairpins.",
+			"data": "res://tracks/akagi.json",
+			"blurb": "The real Route 4 down Mt. Akagi toward Maebashi: wide two-lane road, fast straights and runs of numbered hairpins. Built from OpenStreetMap and survey data.",
 			"width": 7.6, "grade": -6.5, "time": "night",
 			"rival": {"name": "Ren Ishikawa", "car": "coupe", "color": Color(0.95, 0.95, 0.97), "skill": 1.06},
 			"segments": [
@@ -66,7 +68,8 @@ static func all() -> Array:
 			"id": "usui",
 			"name": "Usui Pass",
 			"region": "Gunma / Nagano",
-			"blurb": "The old road with 184 numbered corners. Narrow, endlessly twisting, and almost never straight.",
+			"data": "res://tracks/usui.json",
+			"blurb": "The real old Route 18 over Usui Pass, from Karuizawa down to Yokokawa: 184 numbered corners, narrow and endlessly twisting. Built from OpenStreetMap and survey data.",
 			"width": 5.6, "grade": -6.0, "time": "night",
 			"rival": {"name": "Aoi Shimizu", "car": "coupe", "color": Color(0.9, 0.9, 0.92), "skill": 1.04},
 			"segments": [
@@ -82,7 +85,8 @@ static func all() -> Array:
 			"id": "irohazaka",
 			"name": "Irohazaka",
 			"region": "Tochigi",
-			"blurb": "A one-way descent famous for its hairpins, each named after a character of the old iroha alphabet.",
+			"data": "res://tracks/irohazaka.json",
+			"blurb": "The real First Irohazaka (Route 120), one-way downhill from Lake Chuzenji: 28 hairpins, each named after a character of the iroha alphabet. Built from OpenStreetMap and survey data.",
 			"width": 7.0, "grade": -8.0, "time": "night",
 			"rival": {"name": "Daichi Mori", "car": "hatch", "color": Color(0.85, 0.1, 0.1), "skill": 1.03},
 			"segments": [
@@ -113,7 +117,8 @@ static func all() -> Array:
 			"id": "tsuchisaka",
 			"name": "Tsuchisaka",
 			"region": "Gunma",
-			"blurb": "Wide, fast and flowing. High-speed sweepers where horsepower and nerve matter most.",
+			"data": "res://tracks/tsuchisaka.json",
+			"blurb": "The real Route 71 over Tsuchisaka Pass between Gunma and Saitama: long forest descents and tight hairpins. Built from OpenStreetMap and survey data.",
 			"width": 7.8, "grade": -6.0, "time": "night",
 			"rival": {"name": "Minato Kuroda", "car": "sedan", "color": Color(0.55, 0.55, 0.6), "skill": 1.04},
 			"segments": [
@@ -141,7 +146,8 @@ static func all() -> Array:
 			"id": "nanamagari",
 			"name": "Hakone Nanamagari",
 			"region": "Kanagawa",
-			"blurb": "\"Seven bends\": a staircase of linked hairpins carved into the Hakone hillside.",
+			"data": "res://tracks/nanamagari.json",
+			"blurb": "The real Route 732 through Hakone: the staircase of linked hairpins called the seven bends, then fast sweepers. Built from OpenStreetMap and survey data.",
 			"width": 6.8, "grade": -8.5, "time": "night",
 			"rival": {"name": "Hayato Ozawa", "car": "coupe", "color": Color(0.1, 0.1, 0.12), "skill": 1.08},
 			"segments": [
@@ -157,7 +163,8 @@ static func all() -> Array:
 			"id": "tsubaki",
 			"name": "Tsubaki Line",
 			"region": "Kanagawa",
-			"blurb": "Hakone's long ridge road: tight switchbacks up high, opening into fast, sweeping bends toward the coast.",
+			"data": "res://tracks/tsubaki.json",
+			"blurb": "The real Route 75, the Tsubaki Line from Hakone down toward Yugawara and the sea: ridge-top switchbacks into long sweeping bends. Built from OpenStreetMap and survey data.",
 			"width": 6.6, "grade": -7.0, "time": "night",
 			"rival": {"name": "Riku Onodera", "car": "coupe", "color": Color(0.75, 0.05, 0.08), "skill": 1.1},
 			"segments": [

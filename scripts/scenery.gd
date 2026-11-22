@@ -32,6 +32,10 @@ func build(track: Track) -> void:
 		_real_features()
 	_curve_signs_and_mirrors()
 	_skid_marks()
+	if t.style.get("red_pavement", false):
+		_red_pavement()
+	if t.style.get("chevron_boards", false):
+		_chevron_rows()
 
 
 func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
@@ -137,7 +141,7 @@ func _cedar_mesh() -> ArrayMesh:
 func _walls() -> void:
 	# concrete retaining wall wherever the hillside rises above the road
 	var concrete := _mat(Color(0.3, 0.34, 0.42), 0.95)
-	var tex := _panel_texture()
+	var tex := _plain_concrete_texture() if t.style.get("concrete_walls", false) else _panel_texture()
 	concrete.albedo_texture = tex
 	concrete.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var fence_mat := _mat(Color(0.55, 0.6, 0.7), 0.6)
@@ -188,6 +192,9 @@ func _walls() -> void:
 			var back_b := top_b + t.R[i] * side * 0.4
 			wst.set_normal(Vector3.UP)
 			_quad(wst, top_a, top_b, back_b, back_a, Vector2(u0, 0.1), Vector2(u1, 0.1), side)
+			if t.style.get("wall_fences", false) and maxf(h0, h1) > 2.5:
+				fst.set_normal(nrm)
+				_quad(fst, top_a, top_b, top_b + Vector3.UP * 1.6, top_a + Vector3.UP * 1.6, Vector2(u0 * 2.0, 1), Vector2(u1 * 2.0, 1), side)
 	wst.set_material(concrete)
 	fst.set_material(fence_mat)
 	var wm := MeshInstance3D.new()
@@ -212,6 +219,22 @@ func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, uv0:
 	for k in order:
 		st.set_uv(verts[k][1])
 		st.add_vertex(verts[k][0])
+
+
+func _plain_concrete_texture() -> ImageTexture:
+	# smooth cast-concrete retaining wall with form-tie dots and stains (Usui)
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	for y in 64:
+		for x in 64:
+			var g := 0.85 + 0.06 * sin(x * 0.21) * cos(y * 0.13)
+			if (x % 32 == 8 or x % 32 == 24) and (y % 32 == 8 or y % 32 == 24):
+				g = 0.6
+			if x % 64 < 1:
+				g = 0.65
+			g -= clampf((40 - y) / 200.0, 0.0, 0.15) * (0.5 + 0.5 * sin(x * 0.7))
+			img.set_pixel(x, y, Color(g, g, g * 1.02))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
 
 
 func _panel_texture() -> ImageTexture:
@@ -928,7 +951,7 @@ func _slope_protection() -> void:
 		var run_kind := 0
 		for i in range(0, n, 2):
 			var high := t.terrain_height(t.P[i].x + t.R[i].x * side * (t.rail + 14.0), t.P[i].z + t.R[i].z * side * (t.rail + 14.0)) - t.P[i].y
-			var ok := high > 12.0 and t.dist_to_road(t.P[i] + t.R[i] * side * (t.rail + 14.0)) > t.rail + 4.0
+			var ok: bool = not t.style.get("rock_faces", false) and high > 18.0 and t.dist_to_road(t.P[i] + t.R[i] * side * (t.rail + 14.0)) > t.rail + 4.0
 			var row: Array = []
 			if ok:
 				for l in lats:
@@ -1066,7 +1089,8 @@ func _real_features() -> void:
 	_piece(_boxm(Vector3(0.25, 6.5, 0.25)), gray, Transform3D(Basis(), base + sr * (t.rail + 0.8) + Vector3.UP * 3.25))
 	_piece(_boxm(Vector3(0.15, 0.15, t.rail + 1.5)), gray, Transform3D(Basis.looking_at(-sr, Vector3.UP), base + sr * 0.7 + Vector3.UP * 6.3))
 	var board := _piece(_boxm(Vector3(4.2, 2.0, 0.1)), _emissive(Color(0.05, 0.22, 0.7), 0.35), Transform3D(Basis.looking_at(sd, Vector3.UP), base + Vector3.UP * 5.4))
-	for line in [["伊香保  Ikaho  ↑", 0.45], ["渋川  Shibukawa  →", -0.35]]:
+	var sign_lines: Array = t.sign_text if t.sign_text.size() >= 2 else ["↑", "→"]
+	for line in [[sign_lines[0], 0.45], [sign_lines[1], -0.35]]:
 		var lab := Label3D.new()
 		lab.text = line[0]
 		lab.font_size = 64
@@ -1163,3 +1187,65 @@ func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: 
 	rt.set_material(roof_mat)
 	rm.mesh = rt.commit()
 	_add(rm)
+
+
+func _red_pavement() -> void:
+	# coloured anti-slip surfacing on the approach to tight corners (Myogi)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := t.P.size()
+	var i := 1
+	while i < n:
+		if absf(t.K[i]) < 1.0 / 35.0 or absf(t.K[i - 1]) >= 1.0 / 35.0:
+			i += 1
+			continue
+		var s1: float = t.S[i]
+		var s0: float = maxf(s1 - 45.0, 2.0)
+		var steps := int((s1 - s0) / 2.0)
+		for k in steps:
+			var a := t.point_at(s0 + k * 2.0, -t.hw + 0.3) + Vector3.UP * 0.01
+			var b := t.point_at(s0 + k * 2.0, t.hw - 0.3) + Vector3.UP * 0.01
+			var c := t.point_at(s0 + k * 2.0 + 2.0, -t.hw + 0.3) + Vector3.UP * 0.01
+			var d := t.point_at(s0 + k * 2.0 + 2.0, t.hw - 0.3) + Vector3.UP * 0.01
+			st.set_normal(Vector3.UP)
+			st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
+			st.add_vertex(b); st.add_vertex(c); st.add_vertex(d)
+		i += 25
+	var m := _mat(Color(0.5, 0.16, 0.12), 0.8)
+	st.set_material(m)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	_add(mi)
+
+
+func _chevron_rows() -> void:
+	var img := Image.create(64, 32, false, Image.FORMAT_RGB8)
+	for y in 32:
+		for x in 64:
+			var u := fmod(x + absf(y - 15.5) * 1.2, 32.0)
+			img.set_pixel(x, y, Color(0.05, 0.05, 0.05) if u < 13.0 else Color(0.98, 0.8, 0.05))
+	var m := _mat(Color.WHITE, 0.6)
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.emission_enabled = true
+	m.emission_texture = m.albedo_texture
+	m.emission = Color(0.3, 0.3, 0.3)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var n := t.P.size()
+	var i := 0
+	while i < n:
+		if absf(t.K[i]) < 1.0 / 30.0:
+			i += 1
+			continue
+		var j := i
+		while j < n and absf(t.K[j]) >= 1.0 / 30.0:
+			j += 1
+		var side := -signf(t.K[i])
+		for k in range(i, j, 3):
+			var p: Vector3 = t.P[k] + t.R[k] * side * (t.rail - 0.15)
+			if t.dist_to_road(p) < t.rail - 0.6:
+				continue
+			var face: Vector3 = -t.R[k] * side
+			if side < 0.0:
+				face = -face
+			_piece(_boxm(Vector3(1.9, 0.75, 0.04)), m, Transform3D(Basis.looking_at(t.D[k] * side, Vector3.UP), p + Vector3.UP * 0.95))
+		i = j
