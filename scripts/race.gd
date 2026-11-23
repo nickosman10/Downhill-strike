@@ -192,24 +192,36 @@ func _resolve_contact() -> void:
 		return
 	var d3 := track.dir_at(car.s)
 	var r3 := d3.cross(Vector3.UP)
+	var d2 := Vector2(d3.x, d3.z)
+	var impact := 0.0
 	if pen_l < pen_s:
-		car.pos += r3 * signf(dl if dl != 0.0 else 1.0) * pen_l
-		var n2 := Vector2(r3.x, r3.z) * signf(dl if dl != 0.0 else 1.0)
-		var vn := car.vel.dot(n2)
+		# side by side: pushed apart; the harder you lean on them the more it costs
+		var sgn := signf(dl if dl != 0.0 else 1.0)
+		car.pos += r3 * sgn * pen_l
+		var n2 := Vector2(r3.x, r3.z) * sgn
+		var vn := car.vel.dot(n2) - rival._lat_vel * sgn
 		if vn < 0.0:
-			car.vel -= n2 * vn * 1.3
+			car.vel -= n2 * car.vel.dot(n2) * 1.3
+			impact = -vn + 1.0
+		else:
+			impact = 1.0
+		rival.lat -= sgn * pen_l * 0.3
 	else:
 		car.pos += d3 * signf(ds if ds != 0.0 else -1.0) * pen_s
+		var closing := car.vel.dot(d2) - rival.v
 		if ds < 0.0:
-			var d2 := Vector2(d3.x, d3.z)
-			var excess := car.vel.dot(d2) - rival.v * 0.95
-			if excess > 0.0:
-				car.vel -= d2 * excess
-				_contact(excess)
+			# you ran into them from behind
+			if closing > 0.0:
+				car.vel -= d2 * (closing + 1.0)
+				impact = closing + 1.0
+				if closing > 7.0 and state == State.RACING:
+					_lose("YOU RAMMED %s - DISQUALIFIED" % rival.info.name.to_upper())
+					return
 		else:
-			rival.v *= 0.97
-	if pen_s > 0.6 or pen_l > 0.3:
-		car.combo = 0.0
+			# they ran into you
+			impact = maxf(-closing, 0.0) * 0.5 + 0.8
+			rival.v = minf(rival.v, car.vel.dot(d2))
+	_contact(impact)
 
 
 func _blind_attack(dt: float) -> void:
@@ -283,15 +295,17 @@ var _contact_cooldown := 0.0
 
 ## Running into the rival from behind: you lose speed and control,
 ## and a hard hit gets you disqualified.
-func _contact(excess: float) -> void:
-	if state != State.RACING or _contact_cooldown > 0.0 or excess < 1.5:
+func _contact(impact: float) -> void:
+	if state != State.RACING or _contact_cooldown > 0.0:
 		return
-	_contact_cooldown = 1.0
-	car._crash(excess * 1.5)
-	if excess > 7.0:
-		_lose("YOU RAMMED %s - DISQUALIFIED" % rival.info.name.to_upper())
-	else:
-		hud.show_popup("CONTACT!", Color(1.0, 0.35, 0.2))
+	_contact_cooldown = 0.8
+	car.combo = 0.0
+	# every touch costs both cars: speed, a moment of lost control, a shake
+	car._crash(minf(maxf(impact, 2.5) * 1.6, 12.0))
+	rival.wobble = 1.2
+	rival.v *= 0.94
+	cam.shake(clampf(impact / 8.0, 0.35, 1.0))
+	hud.show_popup("CONTACT!", Color(1.0, 0.35, 0.2))
 
 
 func _on_crash(impact: float) -> void:
