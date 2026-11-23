@@ -12,7 +12,13 @@ var leaf_mat: ShaderMaterial
 var cedar_mat: ShaderMaterial
 var trunk_mat: StandardMaterial3D
 var caps := PackedVector3Array()   # (x, max terrain height, z) under walls and frames
-var wall_sides := {}      # Vector2i(i, side) -> true where a wall stands
+var wall_sides := {}
+# every placed object's footprint, so nothing ends up inside anything else
+var _ko_pos := PackedVector3Array()
+var _ko_r := PackedFloat32Array()
+var _ko_grid := {}
+const KO_CELL := 10.0
+var _pending: Array = []       # trees and bushes, planted last around everything else      # Vector2i(i, side) -> true where a wall stands
 
 
 func build(track: Track) -> void:
@@ -54,6 +60,62 @@ func build(track: Track) -> void:
 		_red_pavement()
 	if t.style.get("chevron_boards", false):
 		_chevron_rows()
+	_plant_pending()
+
+
+## Register an object's footprint (centre, radius on the ground plane).
+func _keep_out(p: Vector3, r: float) -> void:
+	if r <= 0.0 or r > 25.0:
+		return
+	var k := Vector2i(floori(p.x / KO_CELL), floori(p.z / KO_CELL))
+	if not _ko_grid.has(k):
+		_ko_grid[k] = PackedInt32Array()
+	_ko_grid[k].append(_ko_pos.size())
+	_ko_pos.append(p)
+	_ko_r.append(r)
+
+
+## True if a circle at p with radius r overlaps anything already placed.
+func _blocked(p: Vector3, r: float) -> bool:
+	var cx := floori(p.x / KO_CELL)
+	var cz := floori(p.z / KO_CELL)
+	for dz in range(-3, 4):
+		for dx in range(-3, 4):
+			var k := Vector2i(cx + dx, cz + dz)
+			if not _ko_grid.has(k):
+				continue
+			for idx in _ko_grid[k]:
+				var q := _ko_pos[idx]
+				var d := Vector2(p.x - q.x, p.z - q.z).length()
+				if d < r + _ko_r[idx]:
+					return true
+	return false
+
+
+func _register_mesh(mesh: Mesh, xf: Transform3D) -> void:
+	if mesh == null:
+		return
+	var ab: AABB = xf * mesh.get_aabb()
+	_keep_out(ab.get_center(), 0.5 * maxf(ab.size.x, ab.size.z))
+
+
+## Plant the trees and bushes, skipping every spot that would put a trunk or
+## a bush through a sign, pole, lamp, mirror, building or anything else.
+func _plant_pending() -> void:
+	for job in _pending:
+		var mesh: Mesh = job[0]
+		var xfs: Array = job[1]
+		var cols: Array = job[2]
+		var clear: float = job[5]
+		var keep_x: Array = []
+		var keep_c: Array = []
+		for k in xfs.size():
+			var o: Vector3 = xfs[k].origin
+			if _blocked(o, clear):
+				continue
+			keep_x.append(xfs[k])
+			keep_c.append(cols[k] if cols.size() > k else Color.WHITE)
+		_mm_chunked(mesh, keep_x, null, keep_c, job[3], job[4])
 
 
 func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
@@ -67,7 +129,10 @@ func _add(n: Node) -> void:
 	t.add_child(n)
 
 
-func _mm(mesh: Mesh, xf: Array, mat: Material, colors: Array = [], vis_end := 0.0) -> void:
+func _mm(mesh: Mesh, xf: Array, mat: Material, colors: Array = [], vis_end := 0.0, register := true) -> void:
+	if register and mat != null:
+		for x in xf:
+			_register_mesh(mesh, x)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = colors.size() > 0
@@ -97,7 +162,7 @@ func _mm_chunked(mesh: Mesh, xf: Array, mat: Material, colors: Array, chunk: flo
 		buckets[key][0].append(xf[k])
 		buckets[key][1].append(colors[k] if colors.size() > 0 else Color.WHITE)
 	for key in buckets:
-		_mm(mesh, buckets[key][0], mat, buckets[key][1], vis_end)
+		_mm(mesh, buckets[key][0], mat, buckets[key][1], vis_end, false)
 
 
 # ------------------------------------------------------------------ meshes
@@ -441,7 +506,8 @@ func _trees() -> void:
 			var v := rng.randf_range(0.85, 1.15)
 			cols[k2].append(Color(v, v, v))
 	for kind in 3:
-		_mm_chunked(meshes[kind], sets[kind], null, cols[kind], 160.0, 600.0)
+		# planted at the end, around everything else (trunk + a little canopy room)
+		_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 2.0])
 
 
 func _bushes() -> void:
@@ -470,7 +536,7 @@ func _bushes() -> void:
 				var v := rng.randf_range(0.85, 1.2)
 				cols[k].append(Color(v, v, v))
 	for k in 2:
-		_mm_chunked(meshes[k], xf[k], null, cols[k], 120.0, 450.0)
+		_pending.append([meshes[k], xf[k], cols[k], 120.0, 450.0, 0.9])
 
 
 func _poles() -> void:
@@ -708,7 +774,7 @@ func _city() -> void:
 			xf.append(Transform3D(Basis.looking_at(to_pass.normalized(), Vector3.UP).scaled(Vector3(sz, sz, sz)), p))
 			var col: Color = palette[rng.randi() % palette.size()]
 			cols.append(col * rng.randf_range(1.1, 2.2))
-	_mm(quad, xf, m, cols)
+	_mm(quad, xf, m, cols, 0.0, false)
 	if not t.towns_data.is_empty():
 		# warm light haze hanging over each real town
 		for town in towns:
@@ -773,6 +839,7 @@ func _emissive(c: Color, energy := 2.0) -> StandardMaterial3D:
 
 
 func _piece(mesh: Mesh, mat: Material, xf: Transform3D) -> MeshInstance3D:
+	_register_mesh(mesh, xf)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = mat
@@ -788,7 +855,7 @@ func _boxm(size: Vector3) -> BoxMesh:
 
 
 func _clear_spot(p: Vector3, need: float) -> bool:
-	return t.dist_to_road(p) >= need
+	return t.dist_to_road(p) >= need and not _blocked(p, 0.6)
 
 
 func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
@@ -1374,6 +1441,11 @@ func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: 
 	for v in pts:
 		cen += v
 	cen /= pts.size()
+	# the whole footprint is off limits to trees and props
+	var reach := 0.0
+	for v in pts:
+		reach = maxf(reach, v.distance_to(cen))
+	_keep_out(Vector3(cen.x, base, cen.y), reach + 0.5)
 	for k in pts.size():
 		var a := pts[k]
 		var b := pts[(k + 1) % pts.size()]
