@@ -963,6 +963,10 @@ class Car:
                     a = j * (nu + 1) + i
                     faces.append((a, a + 1, a + nu + 2, a + nu + 1))
             lid = self.decal(name, tree, verts, faces, lambda uv: (uv[0], self.Y(uv[1]), 3.0), (0, 0, -1), "Paint", 0.002, 0.012)
+            # dark opening in the hood under the lid (seen once the lamp is up)
+            rv = [(lerp(xa + 0.006, xb - 0.006, i / nu), lerp(d0 + 0.006, d1 - 0.006, j / nv)) for j in range(nv + 1) for i in range(nu + 1)]
+            rec = self.decal("recess", tree, rv, faces, lambda uv: (uv[0], self.Y(uv[1]), 3.0), (0, 0, -1), "Well", 0.0012)
+            self.parts.append(rec)
             bevel(lid, 0.004, 1, 30)
             # hinge at the rear top edge of the lid
             hinge = Vector(((xa + xb) / 2, self.Y(d1), 0))

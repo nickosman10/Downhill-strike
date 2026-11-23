@@ -19,3 +19,4 @@ tools/osm/haruna_osm.json
 tools/osm/*.jpg
 
 build/
+__pycache__/

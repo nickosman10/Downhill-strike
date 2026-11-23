@@ -679,7 +679,7 @@ func _build_glb(scene: PackedScene) -> void:
 		var p := inst.find_child(pn, true, false) as Node3D
 		if p:
 			popups.append(p)
-			lamp_pos.append(p.position + Vector3(0, 0.08, -0.12))
+			lamp_pos.append(p.position + Vector3(0, 0.07, -0.08))
 	if lamp_pos.is_empty():
 		for sx in [-1.0, 1.0]:
 			lamp_pos.append(Vector3(sx * 0.55, 0.62, front_z + 0.05))
@@ -699,7 +699,7 @@ func _build_glb(scene: PackedScene) -> void:
 		spot.light_color = Color(1.0, 0.96, 0.85)
 		add_child(spot)
 		headlights.append(spot)
-		var fl := _flare(Color(1.0, 0.97, 0.9), 1.4)
+		var fl := _flare(Color(1.0, 0.97, 0.9), 0.9)
 		fl.position = lp + Vector3(0, 0, -0.05)
 		add_child(fl)
 		head_glow.append(fl)
