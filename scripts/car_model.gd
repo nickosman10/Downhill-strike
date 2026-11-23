@@ -68,6 +68,8 @@ var body: Node3D
 
 var _shape: Dictionary
 var _popup_angle := 0.0
+var _popup_hinged := false        # Blender models: exported open, close by rotating about the rear hinge
+var _popup_close: Array[float] = []
 var _lights_target := true
 var _spin := 0.0
 var _braking := false
@@ -679,7 +681,15 @@ func _build_glb(scene: PackedScene) -> void:
 		var p := inst.find_child(pn, true, false) as Node3D
 		if p:
 			popups.append(p)
-			lamp_pos.append(p.position + Vector3(0, 0.07, -0.08))
+			_popup_hinged = true
+			var ang := 40.0
+			var lp := p.position + Vector3(0, 0.08, -0.25)
+			for ch in p.get_children():
+				if String(ch.name).begins_with("lens_"):
+					ang = String(ch.name).substr(5).to_float() / 10.0
+					lp = p.position + (ch as Node3D).position
+			_popup_close.append(deg_to_rad(ang))
+			lamp_pos.append(lp + Vector3(0, 0, -0.03))
 	if lamp_pos.is_empty():
 		for sx in [-1.0, 1.0]:
 			lamp_pos.append(Vector3(sx * 0.55, 0.62, front_z + 0.05))
@@ -790,8 +800,11 @@ func set_lights(on: bool, instant := false) -> void:
 
 func _apply_lights() -> void:
 	var open := _popup_angle / (PI / 2) if popups.size() > 0 else (1.0 if _lights_target else 0.0)
-	for p in popups:
-		p.rotation.x = _popup_angle
+	for i in popups.size():
+		if _popup_hinged:
+			popups[i].rotation.x = -_popup_close[i] * (1.0 - open)
+		else:
+			popups[i].rotation.x = _popup_angle
 	for h in headlights:
 		h.visible = open > 0.6
 		h.light_energy = 5.0 * open

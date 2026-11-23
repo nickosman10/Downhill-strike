@@ -216,7 +216,7 @@ class Car:
             "Lens": mat("Lens", (0.9, 0.92, 0.95), 0.05, 0.2, (1.0, 0.97, 0.88), 3.0),
             "Tail": mat("Tail", (0.55, 0.02, 0.02), 0.15, 0.0, (1.0, 0.05, 0.03), 1.0),
             "Amber": mat("Amber", (0.95, 0.45, 0.05), 0.15, 0.0, (1.0, 0.45, 0.0), 0.4),
-            "Reverse": mat("Reverse", (0.85, 0.85, 0.88), 0.1, 0.1),
+            "Reverse": mat("Reverse", (0.62, 0.64, 0.66), 0.05, 0.6),
             "Plate": mat("Plate", (0.93, 0.93, 0.88), 0.5),
             "Tire": mat("Tire", (0.035, 0.035, 0.037), 0.85),
             "Rim": mat("Rim", s.get("rim", (0.55, 0.56, 0.58)), 0.3, 0.8),
@@ -423,8 +423,11 @@ class Car:
                       self._plane_z(zt, False),
                       # A pillar runs parallel to the windscreen
                       self._plane_dz((g0 + a_off, belt(g0)), (r0 + a_off, top(r0)), (dmid, zin)),
-                      # C pillar / quarter window end
-                      self._plane_dz((sd1, belt(sd1)), (sd1 - slant * h, zt), (dmid, zin))]
+                      # C pillar: the quarter window's rear edge runs parallel to the hatch glass,
+                      # leaving an even strip of body colour between them
+                      (self._plane_dz((r1 - s["c_off"], top(r1)), (g1 - s["c_off"], top(g1)), (dmid, zin))
+                       if s.get("c_off") else
+                       self._plane_dz((sd1, belt(sd1)), (sd1 - slant * h, zt), (dmid, zin)))]
                 if bp[0] < 8:
                     out.append(("Trim", sw + [self._plane_dz((bp[0], 0), (bp[0], 2), (bp[1], 0)),
                                               self._plane_dz((bp[1], 0), (bp[1], 2), (bp[0], 0))]))
@@ -529,9 +532,10 @@ class Car:
                     if sx < 0:
                         prof = [(-u, v) for u, v in reversed(prof)]
                     sweep(bm, path, prof, normals=nrm, mat_index=0)
-        lip = new_obj("ArchLips", bm, [self.M["Paint"] if s.get("panda", 0) < 0.62 else self.M["Lower"]])
+        lip_mat = s.get("lip_mat", "Paint")
+        lip = new_obj("ArchLips", bm, [self.M[lip_mat]])
         flip_outward_obj(lip)
-        if s.get("panda", 0) > 0.0:
+        if s.get("panda", 0) > 0.0 and lip_mat == "Paint":
             self.paint_by_height(lip)
         shade(lip, 50)
         self.parts.append(lip)
@@ -585,11 +589,22 @@ class Car:
         """Project a flat 2D mesh onto the shell along `direction`."""
         bm = bmesh.new()
         vs = []
+        dirn = Vector(direction).normalized()
+        last_t = None
+        hits = []
         for uv in verts_uv:
-            o = origin_fn(uv)
+            o = Vector(origin_fn(uv))
             p, n = self.project(tree, o, direction)
+            if p is not None:
+                last_t = (p - o).dot(dirn)
+            hits.append((o, p, n))
+        ts = [(p - o).dot(dirn) for o, p, n in hits if p is not None]
+        t_avg = sum(ts) / len(ts) if ts else 1.0
+        for o, p, n in hits:
             if p is None:
-                p, n = Vector(o) + Vector(direction) * 1.0, -Vector(direction)
+                # missed the edge of a rounded panel: snap to the nearest surface point
+                q, n2, _, _ = tree.find_nearest(o + dirn * t_avg)
+                p, n = q, n2
             vs.append(bm.verts.new(p + n * offset))
         for f in faces:
             try:
@@ -751,10 +766,10 @@ class Car:
             self.plate(tree, pr, "B")
         # ---- wipers, antenna, exhaust, wing
         self.wipers(tree)
+        self.antenna(tree)
         self.wing(tree)
         self.exhaust()
         self.interior()
-        self.underside()
 
     def front_item(self, tree, item):
         kind, face = item[0], item[1]
@@ -812,47 +827,102 @@ class Car:
         self.parts.append(ob)
 
     def mirror(self, tree, sx):
+        """Door mirror: black sail plate set into the window corner, head on a short arm."""
         s = self.s
         m = s.get("mirror")
         if not m:
             return
         d, z = m
-        bot, crease, belt, top, w, rw = self.st(d)
-        x = self.surface_x(d, belt + 0.03)
+        belt = self.st(d)[2]
+        # sail: triangle filling the front lower corner of the side window
+        tri = [(d - 0.07, belt + 0.02), (d + 0.12, belt + 0.02), (d - 0.07 + s.get("a_run", 0.12), belt + 0.16)]
+        fn = lambda uv: (sx * 2.0, self.Y(uv[0]), uv[1])
+        sail = self.decal("sail", tree, tri, [(0, 1, 2)], fn, (-sx, 0, 0), "Trim", 0.002, 0.014)
+        shade(sail, 40)
+        self.parts.append(sail)
+        # head: rounded wedge mounted straight onto the sail plate (no visible arm)
+        hit, n = self.project(tree, (sx * 2.0, self.Y(d + 0.02), belt + 0.06), (-sx, 0, 0))
+        x0 = abs(hit.x) + 0.012 if hit else self.surface_x(d, belt) - 0.02
+        hw, hd, hh = s.get("mirror_size", (0.13, 0.085, 0.115))
         bm = bmesh.new()
-        # stalk
-        box_bm(bm, Vector((sx * (x + 0.03), self.Y(d), belt + 0.045)), (0.07, 0.03, 0.02), 0)
-        # head: rounded housing, glass faces back
-        hx = sx * (x + 0.1)
-        box_bm(bm, Vector((hx, self.Y(d) - 0.03, z)), (0.13, 0.075, 0.085), 0)
+        # inner face buried 1.5 cm into the sail, outer end slightly narrower (wedge)
+        xi, xo = x0 - 0.015, x0 + hw
+        yc = self.Y(d + 0.03)
+        zc = z
+        quad = []
+        for xx, sc in ((xi, 1.0), (xo, 0.82)):
+            for dy, dz in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                quad.append(bm.verts.new((sx * xx, yc + dy * hd * 0.5 * sc + (0.012 if xx == xo else 0), zc + dz * hh * 0.5 * sc)))
+        idx = [(0, 1, 2, 3), (7, 6, 5, 4), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+        for q in idx:
+            bm.faces.new([quad[i] for i in q])
+        flip_outward(bm)
         ob = new_obj("mirror", bm, [self.M[s.get("mirror_mat", "Trim")]])
-        subdivide(ob, 2)
-        shade(ob, 60)
+        bevel(ob, 0.022, 4, 25)
+        shade(ob, 55)
         self.parts.append(ob)
         bm = bmesh.new()
-        box_bm(bm, Vector((hx, self.Y(d) - 0.068, z)), (0.105, 0.004, 0.062), 0)
-        ob = new_obj("mirror_glass", bm, [self.M["Chrome"]])
+        box_bm(bm, Vector((sx * (x0 + hw * 0.5), yc - hd * 0.5 + 0.004, zc)), (hw - 0.04, 0.004, hh - 0.04), 0)
+        self.parts.append(new_obj("mirror_glass", bm, [self.M["Chrome"]]))
+
+    def antenna(self, tree):
+        s = self.s
+        an = s.get("antenna")
+        if not an:
+            return
+        d, sx = an
+        belt = self.st(d)[2]
+        hit, n = self.project(tree, (sx * 2.0, self.Y(d), belt + 0.005), (-sx, 0, 0))
+        if hit is None:
+            return
+        bm = bmesh.new()
+        base = hit + Vector((sx * 0.004, 0, 0))
+        top = base + Vector((sx * 0.02, -0.18, 0.72))
+        c = bmesh.ops.create_cone(bm, cap_ends=True, segments=8, radius1=0.016, radius2=0.012, depth=0.03)
+        bmesh.ops.translate(bm, verts=c["verts"], vec=base + Vector((0, 0, 0.01)))
+        sweep(bm, [base, top], [(0.0025 * math.cos(a), 0.0025 * math.sin(a)) for a in [k * math.tau / 6 for k in range(6)]],
+              normals=[Vector((1, 0, 0))] * 2)
+        ob = new_obj("antenna", bm, [self.M["Chrome"]])
         self.parts.append(ob)
 
     def wipers(self, tree):
+        """Wiper arms pivot on the cowl; blades rest on the glass along its lower edge,
+        every point projected onto the curved windscreen so nothing floats."""
         s = self.s
         g0 = s["glass"][0]
         bm = bmesh.new()
-        for x0, ang in ((-0.42, 0.08), (0.12, 0.08)):
-            p0 = Vector((x0, self.Y(g0 + 0.03), 0))
-            hit, n = self.project(tree, (x0, self.Y(g0 + 0.04), 3.0), (0, 0, -1))
-            if hit is None:
+        for x0, length in s.get("wipers", ((-0.5, 0.46), (0.06, 0.46))):
+            # blade: 12 points along the glass, 6 mm above it
+            pts, nrm = [], []
+            for k in range(12):
+                x = x0 + 0.03 + length * k / 11
+                hit, n = self.project(tree, (x, self.Y(g0 + 0.085 + 0.02 * k / 11), 3.0), (0, 0, -1))
+                if hit is None:
+                    continue
+                pts.append(hit + n * 0.007)
+                nrm.append(n)
+            if len(pts) > 2:
+                sweep(bm, pts, [(-0.008, -0.005), (0.008, -0.005), (0.006, 0.006), (-0.006, 0.006)], normals=nrm)
+            # arm: from the pivot on the cowl to the middle of the blade, resting just on top of it
+            hp, hn = self.project(tree, (x0, self.Y(g0 - 0.03), 3.0), (0, 0, -1))
+            if hp is None or len(pts) < 6:
                 continue
-            base = hit + n * 0.012
-            tip_x = x0 + 0.5
-            hit2, n2 = self.project(tree, (tip_x, self.Y(g0 + 0.08), 3.0), (0, 0, -1))
-            if hit2 is None:
-                continue
-            tip = hit2 + n2 * 0.012
-            sweep(bm, [base, tip], [(-0.007, -0.004), (0.007, -0.004), (0.007, 0.004), (-0.007, 0.004)],
-                  normals=[n, n2])
+            mid = pts[6] + nrm[6] * 0.009
+            arm = [hp + hn * 0.012]
+            for k in range(1, 6):
+                t = k / 5
+                q = arm[0].lerp(mid, t)
+                h2, n2 = self.project(tree, (q.x, q.y, 3.0), (0, 0, -1))
+                if h2 is not None:
+                    q = h2 + n2 * (0.016 - 0.007 * t)
+                arm.append(q)
+            sweep(bm, arm, [(-0.006, -0.004), (0.006, -0.004), (0.006, 0.004), (-0.006, 0.004)], normals=[Vector((0, 0, 1))] * len(arm))
+            # pivot cap sits on the cowl
+            c = bmesh.ops.create_cone(bm, cap_ends=True, segments=12, radius1=0.018, radius2=0.014, depth=0.02)
+            bmesh.ops.translate(bm, verts=c["verts"], vec=hp + hn * 0.006)
         ob = new_obj("wipers", bm, [self.M["Trim"]])
         flip_outward_obj(ob)
+        shade(ob, 50)
         self.parts.append(ob)
 
     def wing(self, tree):
@@ -869,10 +939,18 @@ class Car:
             path = [Vector((x, self.Y(d) + 0.0, top + 0.012)) for x in [-rw + 0.04, -rw * 0.5, 0, rw * 0.5, rw - 0.04]]
             sweep(bm, path, [(-0.0, -0.01), (0.012, 0.0), (0.0, 0.012), (-0.17, 0.006), (-0.17, -0.002)])
         elif kind == "lip":
+            # hatch spoiler: its base follows the panel surface exactly
             d = wg[1]
             bot, crease, belt, top, w, rw = self.st(d)
-            path = [Vector((x, self.Y(d), top + 0.01)) for x in [-w + 0.08, -w * 0.5, 0, w * 0.5, w - 0.08]]
-            sweep(bm, path, [(0.0, -0.01), (0.02, 0.0), (0.0, 0.03), (-0.12, 0.01), (-0.12, -0.005)])
+            path, nrm = [], []
+            for k in range(13):
+                x = lerp(-w + 0.09, w - 0.09, k / 12)
+                hit, n = self.project(tree, (x, self.Y(d), 3.0), (0, 0, -1))
+                if hit is None:
+                    continue
+                path.append(hit)
+                nrm.append(Vector((0, 0, 1)))
+            sweep(bm, path, [(0.03, -0.012), (0.04, 0.012), (0.0, 0.045), (-0.1, 0.03), (-0.13, 0.012), (-0.12, -0.012)], normals=nrm)
         elif kind in ("big", "duck"):
             d = wg[1]
             hgt = wg[2]
@@ -916,8 +994,9 @@ class Car:
         bot, crease, belt, top, w, rw = self.st(dmid)
         for sx in (-1, 1):
             # seat backs and headrests
-            box_bm(bm, Vector((sx * 0.36, self.Y(dmid + 0.05), belt + 0.12)), (0.42, 0.1, 0.42), 0)
-            box_bm(bm, Vector((sx * 0.36, self.Y(dmid + 0.04), belt + 0.36)), (0.22, 0.09, 0.14), 0)
+            # kept well under the roof skin (headroom ~10 cm) so nothing pokes through
+            box_bm(bm, Vector((sx * 0.36, self.Y(dmid + 0.05), belt + 0.02)), (0.42, 0.1, 0.38), 0)
+            box_bm(bm, Vector((sx * 0.36, self.Y(dmid + 0.04), belt + 0.26)), (0.22, 0.09, 0.12), 0)
         # steering wheel (right-hand drive)
         g0 = s["glass"][0]
         sw = bmesh.ops.create_cone(bm, cap_ends=False, segments=20, radius1=0.19, radius2=0.19, depth=0.03)
@@ -944,63 +1023,95 @@ class Car:
 
     # ---------------------------------------------------------- pop-ups
     def popups(self, tree):
+        """Pop-up lamps hinged at the rear edge of the lid, exported OPEN.
+        Open: the lid tips up at the front and a black wedge housing carries a
+        framed lens on its vertical front face. The game rotates each unit down
+        about its hinge by the angle stored in the child node name
+        ("lens_<tenths of a degree>") until the lid lies flush in the hood."""
         s = self.s
         pu = s.get("popup")
         if not pu:
             return []
         d0, d1, x0, x1 = pu["d0"], pu["d1"], pu["x0"], pu["x1"]
+        beta = math.radians(pu.get("tilt", 24.0))      # lid angle above horizontal when open
         out = []
+        nu, nv = 10, 8
+        faces = [(j * (nu + 1) + i, j * (nu + 1) + i + 1, (j + 1) * (nu + 1) + i + 1, (j + 1) * (nu + 1) + i)
+                 for j in range(nv) for i in range(nu)]
+        down = lambda uv: (uv[0], self.Y(uv[1]), 3.0)
         for sx, name in ((1, "Popup_R"), (-1, "Popup_L")):
             xa, xb = (x0, x1) if sx > 0 else (-x1, -x0)
-            # lid: projected onto the hood so it sits flush, then thickened down
-            nu, nv = 8, 6
-            verts, faces = [], []
-            for j in range(nv + 1):
-                for i in range(nu + 1):
-                    verts.append((lerp(xa, xb, i / nu), lerp(d0, d1, j / nv)))
-            for j in range(nv):
-                for i in range(nu):
-                    a = j * (nu + 1) + i
-                    faces.append((a, a + 1, a + nu + 2, a + nu + 1))
-            lid = self.decal(name, tree, verts, faces, lambda uv: (uv[0], self.Y(uv[1]), 3.0), (0, 0, -1), "Paint", 0.002, 0.012)
-            # dark opening in the hood under the lid (seen once the lamp is up)
-            rv = [(lerp(xa + 0.006, xb - 0.006, i / nu), lerp(d0 + 0.006, d1 - 0.006, j / nv)) for j in range(nv + 1) for i in range(nu + 1)]
-            rec = self.decal("recess", tree, rv, faces, lambda uv: (uv[0], self.Y(uv[1]), 3.0), (0, 0, -1), "Well", 0.0012)
-            self.parts.append(rec)
-            bevel(lid, 0.004, 1, 30)
-            # hinge at the rear top edge of the lid
-            hinge = Vector(((xa + xb) / 2, self.Y(d1), 0))
-            hz = max(v.co.z for v in lid.data.vertices)
-            hinge.z = hz
-            lid.data.transform(Matrix.Translation(-hinge))
-            lid.location = hinge
-            # lamp unit hangs under the lid: its underside becomes the lamp face when raised
-            depth = pu.get("depth", 0.13)
-            ln = d1 - d0
+            cx = (xa + xb) / 2
+            hH, _ = self.project(tree, (cx, self.Y(d1), 3.0), (0, 0, -1))
+            hF, _ = self.project(tree, (cx, self.Y(d0), 3.0), (0, 0, -1))
+            H = Vector((0, hH.y, hH.z))                       # hinge line (x varies)
+            alpha = math.atan2(hH.z - hF.z, hF.y - hH.y)       # hood slope, front lower
+            theta = alpha + beta                               # open angle from flush
+            R = Matrix.Translation(H) @ Matrix.Rotation(theta, 4, "X") @ Matrix.Translation(-H)
+            # lid: the hood corner panel itself, 12 mm thick, swung open about the hinge
+            grid = [(lerp(xa, xb, i / nu), lerp(d0, d1, j / nv)) for j in range(nv + 1) for i in range(nu + 1)]
+            lid = self.decal(name, tree, grid, faces, down, (0, 0, -1), "Paint", 0.0015, 0.012)
+            bevel(lid, 0.003, 1, 30)
+            lid.data.transform(R)
+            # open-state geometry in the side plane (y, z)
+            ln = hF.y - hH.y
+            fy = H.y + ln * math.cos(beta)                     # lid front edge
+            fz = H.z + ln * math.sin(beta)
+            fz_bot = hF.z - 0.03                               # front face reaches just under the hood
+            inset = 0.012
             bm = bmesh.new()
-            box_bm(bm, Vector((0, ln * 0.5 - 0.005, -0.012 - depth * 0.5)), (abs(xb - xa) - 0.02, ln - 0.02, depth), 0)
-            hous = new_obj("housing", bm, [self.M["Paint"] if s.get("popup_body", True) else self.M["Trim"]])
-            bevel(hous, 0.008, 2, 30)
+            prof = [(H.y - 0.005, H.z - 0.012), (fy - 0.004, fz - 0.004), (fy - 0.004, fz_bot), (H.y + 0.02, H.z - 0.05)]
+            ring = []
+            for xx in (xa + inset, xb - inset):
+                ring.append([bm.verts.new((xx, py, pz)) for py, pz in prof])
+            bm.faces.new(ring[0])
+            bm.faces.new(list(reversed(ring[1])))
+            for k in range(4):
+                bm.faces.new((ring[0][k], ring[1][k], ring[1][(k + 1) % 4], ring[0][(k + 1) % 4]))
+            flip_outward(bm)
+            hous = new_obj("housing", bm, [self.M["Trim"]])
+            bevel(hous, 0.005, 2, 30)
+            # framed lens on the vertical front face, in the part that shows above the hood
+            vis_lo, vis_hi = hF.z + 0.012, fz - 0.016
+            lz = (vis_lo + vis_hi) / 2
+            lw = abs(xb - xa) - 2 * inset - pu.get("frame", 0.05)
+            lh = min(vis_hi - vis_lo - 0.02, lw * pu.get("aspect", 0.86))
+            yf = fy - 0.004
             bm = bmesh.new()
-            nl = pu.get("lamps", 1)
-            lw = (abs(xb - xa) - 0.06) / nl
-            for k in range(nl):
-                cx = -abs(xb - xa) / 2 + 0.03 + lw * (k + 0.5)
-                if nl == 1 or pu.get("rect", True):
-                    box_bm(bm, Vector((cx, ln * 0.5 - 0.005, -0.012 - depth - 0.002)), (lw - 0.02, ln - 0.06, 0.006), 0)
-                else:
-                    c = bmesh.ops.create_circle(bm, cap_ends=True, segments=24, radius=min(lw, ln) * 0.42)
-                    bmesh.ops.translate(bm, verts=c["verts"], vec=(cx, ln * 0.5 - 0.005, -0.012 - depth - 0.003))
-            lens = new_obj("lens", bm, [self.M["Lens"]])
-            # inner bezel ring (black)
-            bm = bmesh.new()
-            box_bm(bm, Vector((0, ln * 0.5 - 0.005, -0.012 - depth - 0.0005)), (abs(xb - xa) - 0.035, ln - 0.035, 0.004), 0)
+            fw = 0.012
+            for (bx, bz, sw, shh) in ((cx, lz + lh / 2 + fw / 2, lw + 2 * fw, fw), (cx, lz - lh / 2 - fw / 2, lw + 2 * fw, fw),
+                                      (cx - lw / 2 - fw / 2, lz, fw, lh), (cx + lw / 2 + fw / 2, lz, fw, lh)):
+                box_bm(bm, Vector((bx, yf + 0.006, bz)), (sw, 0.014, shh), 0)
             bez = new_obj("bezel", bm, [self.M["Trim"]])
-            for o in (hous, lens, bez):
-                o.location = hinge
-            join_into(lid, [hous, lens, bez])
+            bevel(bez, 0.003, 1, 30)
+            bm = bmesh.new()
+            box_bm(bm, Vector((cx, yf + 0.002, lz)), (lw, 0.016, lh), 0)
+            lens = new_obj("lens", bm, [self.M["Lens"]])
+            bevel(lens, 0.004, 2, 30)
+            bm = bmesh.new()
+            for k in (-1, 1):
+                box_bm(bm, Vector((cx, yf + 0.0105, lz + k * lh * 0.2)), (lw * 0.85, 0.002, 0.004), 0)
+            ribs = new_obj("ribs", bm, [self.M["Chrome"]])
+            join_into(lid, [hous, bez, lens, ribs])
+            # origin on the hinge
+            org = Vector((cx, H.y, H.z))
+            lid.data.transform(Matrix.Translation(-org))
+            lid.location = org
             shade(lid, 40)
+            # marker child: lens position + closing angle
+            emp = bpy.data.objects.new("lens_%d" % round(math.degrees(theta) * 10), None)
+            bpy.context.scene.collection.objects.link(emp)
+            emp.parent = lid
+            emp.location = Vector((cx, yf + 0.01, lz)) - org
             out.append(lid)
+            out.append(emp)
+            # shut line around the lid opening (stays on the body)
+            e = 0.004
+            for (ua, ub, va, vb) in ((xa - e, xb + e, d0 - e, d0), (xa - e, xb + e, d1, d1 + e),
+                                     (xa - e, xa, d0, d1), (xb, xb + e, d0, d1)):
+                g = [(lerp(ua, ub, i / 6), lerp(va, vb, j / 1)) for j in range(2) for i in range(7)]
+                f = [(i, i + 1, i + 8, i + 7) for i in range(6)]
+                self.parts.append(self.decal("shut", tree, g, f, down, (0, 0, -1), "Trim", 0.0008))
         return out
 
     # ---------------------------------------------------------- wheels
@@ -1166,8 +1277,6 @@ def reset_scene():
 def render(path, cid, pops=()):
     """Cycles studio render, lights-on version: pop-ups raised, lamps lit."""
     scn = bpy.context.scene
-    for p in pops:
-        p.rotation_euler.x = math.radians(88)
     for name, strength in (("Lens", 30.0), ("Tail", 8.0), ("Amber", 3.0)):
         bsdf = bpy.data.materials[name].node_tree.nodes["Principled BSDF"]
         bsdf.inputs["Emission Strength"].default_value = strength
@@ -1234,7 +1343,7 @@ def main():
         o.select_set(o in [body] + wheels + pops)
     bpy.ops.export_scene.gltf(filepath=out, export_format="GLB", use_selection=True, export_apply=True,
                               export_yup=True, export_materials="EXPORT", export_normals=True)
-    tris = sum(len(p.vertices) - 2 for o in [body] + wheels + pops for p in o.data.polygons)
+    tris = sum(len(p.vertices) - 2 for o in [body] + wheels + pops if o.data for p in o.data.polygons)
     print(f"[car] {cid}: exported {out} ({tris} tris)")
     if "--render" in argv:
         render(argv[argv.index("--render") + 1], cid, pops)
