@@ -238,14 +238,28 @@ class Car:
 
     def st(self, d):
         rows = self.rows
+        out = list(rows[-1][1:])
         if d <= rows[0][0]:
-            return list(rows[0][1:])
-        for i in range(1, len(rows)):
-            if d <= rows[i][0]:
-                a, b = rows[i - 1], rows[i]
-                t = (d - a[0]) / max(b[0] - a[0], 1e-6)
-                return [lerp(a[k], b[k], t) for k in range(1, len(a))]
-        return list(rows[-1][1:])
+            out = list(rows[0][1:])
+        else:
+            for i in range(1, len(rows)):
+                if d <= rows[i][0]:
+                    a, b = rows[i - 1], rows[i]
+                    t = (d - a[0]) / max(b[0] - a[0], 1e-6)
+                    out = [lerp(a[k], b[k], t) for k in range(1, len(a))]
+                    break
+        # fenders always clear the wheel arch: the shoulder rises over each wheel
+        R = self.tire_r + self.s.get("arch_gap", 0.055)
+        need = self.tire_r + R + 0.06
+        for dw in self.wheel_d:
+            f = smooth(1.0 - abs(d - dw) / (R + 0.35))
+            if f > 0 and out[2] < need:
+                rise = (need - out[2]) * f
+                out[2] += rise
+                out[1] = min(out[1] + rise * 0.6, out[2] - 0.05)
+                if out[3] < out[2] + 0.004:
+                    out[3] = max(out[3], out[2] - 0.035)   # hood centre may sit below the fender tops
+        return out
 
     # ---------------------------------------------------------- body shell
     def ring(self, d):
@@ -419,6 +433,7 @@ class Car:
             zin = (belt(dmid) + zt) / 2
             for sx in (-1, 1):
                 sw = [self._plane_x(sx * 0.3, sx > 0),
+                      self._plane_dz((sd1, 0), (sd1, 2), (dmid, zin)),
                       self._plane_dz((sd0, belt(sd0) + 0.035), (sd1, belt(sd1) + 0.035), (dmid, zin)),
                       self._plane_z(zt, False),
                       # A pillar runs parallel to the windscreen
