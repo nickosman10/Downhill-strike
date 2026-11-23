@@ -18,12 +18,36 @@ const SHOTS := [
 ]
 
 
+# every car on a real course: [file, course, mode, position, camera, hud, car]
+const CAR_SHOTS := [
+	["car_ae86_haruna", 0, 1, 0.84, "front_low", false, "ae86"],
+	["car_ae85_haruna", 0, 0, 0.30, "front_low", false, "ae85"],
+	["car_s13_tsuchisaka", 6, 1, 0.40, "front_low", false, "s13"],
+	["car_180sx_myogi", 1, 0, 0.55, "front_low", false, "180sx"],
+	["car_eg6_tsubaki", 9, 0, 0.62, "front_low", false, "eg6"],
+	["car_sil80_usui", 3, 1, 0.50, "front_low", false, "sil80"],
+	["car_r32_myogi", 1, 1, 0.30, "front_low", false, "r32"],
+	["car_fc3s_nanamagari", 8, 1, 0.45, "front_low", false, "fc3s"],
+	["car_fd3s_akagi", 2, 1, 0.35, "front_low", false, "fd3s"],
+	["car_evo3_irohazaka", 4, 1, 0.45, "front_low", false, "evo3"],
+	["car_ek9_akagi", 2, 0, 0.70, "front_low", false, "ek9"],
+	["car_s2000_irohazaka", 4, 0, 0.25, "front_low", false, "s2000"],
+	["car_r34_tsubaki", 9, 1, 0.40, "front_low", false, "r34"],
+]
+
+
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	get_window().size = Vector2i(1920, 1080)
+	if args.size() > 1 and args[1] == "cars":
+		for s in CAR_SHOTS:
+			Game.selected_car = s[6]
+			await _shot(s)
+		get_tree().quit()
+		return
 	await _menu_shot()
 	for s in SHOTS:
 		await _shot(s)
