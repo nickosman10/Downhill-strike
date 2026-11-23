@@ -491,7 +491,7 @@ class Car:
             if region == "Glass":
                 glass_faces.append(f)
         # window frames: inset the glass behind a black rubber surround
-        res = bmesh.ops.inset_region(bm, faces=glass_faces, thickness=0.016, depth=-0.005, use_even_offset=True)
+        res = bmesh.ops.inset_region(bm, faces=glass_faces, thickness=0.016, depth=-0.005, use_even_offset=False)
         for f in res["faces"]:
             f.material_index = idx["Trim"]
         bm.to_mesh(me)
