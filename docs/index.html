@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Downhill Strike</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Inter:wght@400;600&display=swap">
+<style>
+/* Layout: one full-window game canvas; a night-road loading card on top until the game starts */
+:root {
+  --night: #070b18;
+  --panel: #0d1428;
+  --line: #24314f;
+  --text: #dfe6f5;
+  --dim: #8e9bb8;
+  --amber: #ffb627;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+body { background: var(--night); color: var(--text); font-family: var(--body); overflow: hidden; }
+#canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; background: var(--night); }
+#load {
+  position: fixed; inset: 0; display: grid; place-items: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: radial-gradient(ellipse at 50% 120%, #1b2a55 0%, var(--night) 60%);
+}
+.card { width: min(560px, 100%); display: grid; gap: 18px; }
+h1 { margin: 0; font-family: var(--display); font-size: clamp(2.2rem, 7vw, 3.6rem); letter-spacing: 0.04em; color: var(--amber); text-wrap: balance; line-height: 1; }
+.sub { margin: 0; color: var(--dim); font-size: 0.8rem; letter-spacing: 0.18em; text-transform: uppercase; }
+.bar { height: 10px; border-radius: 5px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+.fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ff7a18, var(--amber)); transition: width 0.2s linear; }
+#status { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; font-size: 0.95rem; min-height: 1.4em; }
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 18px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 0.85rem; color: var(--dim); }
+.keys b { color: var(--text); font-weight: 600; }
+.note { margin: 0; color: var(--dim); font-size: 0.78rem; }
+@media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+</style>
+</head>
+<body>
+
+
+<canvas id="canvas" tabindex="0">Your browser does not support the canvas element.</canvas>
+<div id="load">
+  <div class="card">
+    <p class="sub">Midnight touge · downhill only</p>
+    <h1>DOWNHILL STRIKE</h1>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <p id="status">Loading the mountain…</p>
+    <div class="keys">
+      <span><b>W / S</b> throttle · brake</span>
+      <span><b>A / D</b> steer</span>
+      <span><b>Space</b> + steer: drift</span>
+      <span><b>L</b> lights · <b>C</b> camera</span>
+      <span><b>R</b> reset · <b>Esc</b> menu</span>
+      <span><b>M</b> next song · <b>N</b> music</span>
+    </div>
+    <p class="note">About 180 MB on first load. Best on a desktop browser with a keyboard. Click the game once if keys don't respond.</p>
+  </div>
+</div>
+
+<script src="index.js"></script>
+<script>
+(function () {
+  const fill = document.getElementById("fill");
+  const status = document.getElementById("status");
+  const realFetch = window.fetch.bind(window);
+  let chunks = null;
+  let total = 0, got = 0;
+  const show = () => {
+    const pct = total ? Math.min(100, got / total * 100) : 0;
+    fill.style.width = pct.toFixed(1) + "%";
+    status.textContent = "Downloading " + (got / 1048576).toFixed(0) + " / " + (total / 1048576).toFixed(0) + " MB";
+  };
+  // The engine and game data are published in pieces (each file must stay
+  // small); rebuild index.wasm and index.pck in memory when Godot asks for them.
+  async function assemble(name) {
+    const info = chunks[name];
+    const parts = [];
+    for (const p of info.parts) {
+      const r = await realFetch(p);
+      if (!r.ok) throw new Error("Missing file " + p + " (" + r.status + ")");
+      const b = await r.arrayBuffer();
+      got += b.byteLength;
+      show();
+      parts.push(b);
+    }
+    const type = name.endsWith(".wasm") ? "application/wasm" : "application/octet-stream";
+    return new Response(new Blob(parts, { type }), { headers: { "Content-Type": type, "Content-Length": String(info.size) } });
+  }
+  window.fetch = function (input, init) {
+    const url = typeof input === "string" ? input : (input && input.url) || "";
+    if (chunks) {
+      for (const name of Object.keys(chunks)) {
+        if (url.split("?")[0].endsWith(name)) return assemble(name);
+      }
+    }
+    return realFetch(input, init);
+  };
+  const fail = (e) => { status.textContent = "Couldn't start the game: " + (e && e.message ? e.message : e); };
+  realFetch("chunks.json").then((r) => r.json()).then((c) => {
+    chunks = c;
+    total = Object.values(c).reduce((s, x) => s + x.size, 0);
+    show();
+    const engine = new Engine({
+      args: [], canvasResizePolicy: 2, ensureCrossOriginIsolationHeaders: false,
+      executable: "index", experimentalVK: false, focusCanvas: true, gdextensionLibs: [],
+      fileSizes: { "index.pck": c["index.pck"].size, "index.wasm": c["index.wasm"].size },
+    });
+    return engine.startGame({
+      onProgress: () => {},
+    }).then(() => {
+      document.getElementById("load").hidden = true;
+      document.getElementById("canvas").focus();
+    });
+  }).catch(fail);
+})();
+</script>
+
+</body>
+</html>
