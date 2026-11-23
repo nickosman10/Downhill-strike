@@ -12,6 +12,9 @@ uniform sampler2D aerial : source_color, filter_linear_mipmap, repeat_disable;
 uniform vec2 aerial_origin = vec2(0.0);
 uniform vec2 aerial_size = vec2(1.0);
 uniform float use_aerial = 0.0;
+// close-up surface detail so the ground does not read as flat colour
+uniform sampler2D ground_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D rock_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 
 varying vec3 wpos;
 varying vec3 wnorm;
@@ -45,10 +48,17 @@ void fragment() {
 		vec3 photo = texture(aerial, auv).rgb;
 		// moonlit night grade of the real ground colours
 		float lum = dot(photo, vec3(0.3, 0.55, 0.15));
-		vec3 night = mix(vec3(lum), photo, 0.45) * vec3(0.32, 0.45, 0.85);
+		vec3 night = mix(vec3(lum), photo, 0.62) * vec3(0.42, 0.52, 0.85);
 		// steep cuts read as rock even where the photo shows canopy
 		night = mix(night, rock_col * strata, rock * 0.6);
 		base = night * 0.75;
 	}
-	ALBEDO = base * shade;
+	// detail: grass/leaf litter on the flats, layered rock on the cuts
+	vec3 g = texture(ground_tex, wpos.xz * 0.22).rgb;
+	vec3 rk = texture(rock_tex, vec2(wpos.x + wpos.z, wpos.y) * 0.18).rgb;
+	vec3 detail = mix(g / vec3(0.32, 0.44, 0.2), rk / vec3(0.5), rock);
+	detail = mix(vec3(1.0), detail, 0.55);
+	// fade the detail out with distance so it does not shimmer far away
+	float fade = clamp(1.0 - length(wpos - CAMERA_POSITION_WORLD) / 220.0, 0.0, 1.0);
+	ALBEDO = base * shade * mix(vec3(1.0), detail, fade);
 }

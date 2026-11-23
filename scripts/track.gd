@@ -406,19 +406,18 @@ func _mat(color: Color, rough := 0.9) -> StandardMaterial3D:
 
 
 func _build_road_mesh() -> void:
-	var asphalt := _mat(Color(0.16, 0.16, 0.17), 0.95)
-	var noise := FastNoiseLite.new()
-	noise.frequency = 0.08
-	var tex := NoiseTexture2D.new()
-	tex.noise = noise
-	tex.width = 256
-	tex.height = 256
-	tex.seamless = true
-	asphalt.albedo_texture = tex
-	asphalt.albedo_color = Color(0.2, 0.2, 0.22)
-	asphalt.roughness = 0.42        # slightly wet night tarmac catches the headlights
-	asphalt.metallic_specular = 0.7
-	var concrete := _mat(Color(0.42, 0.42, 0.4), 0.8)
+	# real tarmac: aggregate, cracks, sealed seams and repair patches (6 m tile)
+	var asphalt := _mat(Color(0.62, 0.63, 0.68), 1.0)
+	asphalt.albedo_texture = load("res://assets/textures/asphalt_albedo.png")
+	asphalt.normal_enabled = true
+	asphalt.normal_texture = load("res://assets/textures/asphalt_normal.png")
+	asphalt.normal_scale = 0.9
+	asphalt.roughness_texture = load("res://assets/textures/asphalt_rough.png")
+	asphalt.metallic_specular = 0.6
+	asphalt.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var concrete := _mat(Color(0.7, 0.7, 0.68), 0.85)
+	concrete.albedo_texture = load("res://assets/textures/concrete.png")
+	concrete.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	var gravel := _mat(Color(0.22, 0.2, 0.17))
 	var grass := _mat(Color(0.07, 0.11, 0.06))
 	# surface id per profile strip (strip k joins profile point k and k+1)
@@ -808,6 +807,8 @@ func terrain_height(x: float, z: float) -> float:
 func _build_terrain() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
+	mat.set_shader_parameter("ground_tex", load("res://assets/textures/ground_detail.png"))
+	mat.set_shader_parameter("rock_tex", load("res://assets/textures/rock_detail.png"))
 	if terrain_info.has("aerial"):
 		var tex: Texture2D = load("res://tracks/" + terrain_info.aerial)
 		if tex:

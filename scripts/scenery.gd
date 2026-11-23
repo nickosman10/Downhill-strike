@@ -8,6 +8,9 @@ extends RefCounted
 var t: Track
 var rng := RandomNumberGenerator.new()
 var foliage_mat: ShaderMaterial
+var leaf_mat: ShaderMaterial
+var cedar_mat: ShaderMaterial
+var trunk_mat: StandardMaterial3D
 var wall_sides := {}      # Vector2i(i, side) -> true where a wall stands
 
 
@@ -16,6 +19,16 @@ func build(track: Track) -> void:
 	rng.seed = hash(t.course.get("id", "x"))
 	foliage_mat = ShaderMaterial.new()
 	foliage_mat.shader = load("res://shaders/foliage.gdshader")
+	leaf_mat = ShaderMaterial.new()
+	leaf_mat.shader = load("res://shaders/foliage_card.gdshader")
+	leaf_mat.set_shader_parameter("leaves", load("res://assets/textures/leaves.png"))
+	cedar_mat = ShaderMaterial.new()
+	cedar_mat.shader = load("res://shaders/foliage_card.gdshader")
+	cedar_mat.set_shader_parameter("leaves", load("res://assets/textures/cedar.png"))
+	cedar_mat.set_shader_parameter("brightness", 0.55)
+	trunk_mat = StandardMaterial3D.new()
+	trunk_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	trunk_mat.albedo_color = Color(0.05, 0.05, 0.07)
 	_walls()
 	_tunnels()
 	_slope_protection()
@@ -103,6 +116,80 @@ func _blob_mesh(lumps: int, spread: float, radius: float, seed_v: int) -> ArrayM
 	return st.commit()
 
 
+## Canopy of crossed leaf cards around a centre (textured, alpha cut).
+func _cards(st: SurfaceTool, center: Vector3, radius: float, cards: int, seed_v: int, stretch := 1.0) -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	for k in cards:
+		var c := center
+		if k > 0:
+			c += Vector3(r.randf_range(-0.55, 0.55) * radius, r.randf_range(-0.35, 0.45) * radius, r.randf_range(-0.55, 0.55) * radius)
+		var yaw := r.randf() * TAU
+		var size := radius * r.randf_range(1.35, 1.8)
+		var right := Vector3(cos(yaw), 0, sin(yaw)) * size * 0.5
+		var up := (Vector3.UP * size * 0.5 * stretch).rotated(right.normalized(), r.randf_range(-0.3, 0.3))
+		st.set_normal(right.cross(up).normalized())
+		var v := [c - right - up, c + right - up, c + right + up, c - right + up]
+		var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+		for idx in [0, 2, 1, 0, 3, 2]:
+			st.set_uv(uv[idx])
+			st.add_vertex(v[idx])
+
+
+func _trunk_surface(mesh: ArrayMesh, height: float, r0: float, r1: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = r1
+	trunk.bottom_radius = r0
+	trunk.height = height
+	trunk.radial_segments = 5
+	st.append_from(trunk, 0, Transform3D(Basis(), Vector3(0, height * 0.5, 0)))
+	st.set_material(trunk_mat)
+	st.commit(mesh)
+
+
+func _card_tree(seed_v: int) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	_trunk_surface(mesh, 5.5, 0.26, 0.14)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_cards(st, Vector3(0, 6.3, 0), 2.6, 10, seed_v)
+	st.set_material(leaf_mat)
+	st.commit(mesh)
+	return mesh
+
+
+func _card_cedar() -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	_trunk_surface(mesh, 3.0, 0.24, 0.16)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# three crossed needle cards, like a sugi seen from any side
+	for k in 3:
+		var yaw := PI * k / 3.0
+		var right := Vector3(cos(yaw), 0, sin(yaw)) * 2.4
+		var lo := Vector3(0, 1.6, 0)
+		var hi := Vector3(0, 12.0, 0)
+		st.set_normal(right.cross(Vector3.UP).normalized())
+		var v := [lo - right, lo + right, hi + right, hi - right]
+		var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+		for idx in [0, 2, 1, 0, 3, 2]:
+			st.set_uv(uv[idx])
+			st.add_vertex(v[idx])
+	st.set_material(cedar_mat)
+	st.commit(mesh)
+	return mesh
+
+
+func _card_bush(seed_v: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_cards(st, Vector3(0, 0.7, 0), 1.0, 6, seed_v, 0.8)
+	st.set_material(leaf_mat)
+	return st.commit()
+
+
 func _tree_mesh(seed_v: int) -> ArrayMesh:
 	# deciduous: trunk + clustered canopy
 	var st := SurfaceTool.new()
@@ -141,7 +228,7 @@ func _cedar_mesh() -> ArrayMesh:
 
 func _walls() -> void:
 	# concrete retaining wall wherever the hillside rises above the road
-	var concrete := _mat(Color(0.3, 0.34, 0.42), 0.95)
+	var concrete := _mat(Color(0.62, 0.63, 0.64), 0.95)
 	var tex := _plain_concrete_texture() if t.style.get("concrete_walls", false) else _panel_texture()
 	concrete.albedo_texture = tex
 	concrete.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -277,7 +364,7 @@ func _fence_texture() -> ImageTexture:
 
 
 func _trees() -> void:
-	var meshes := [_tree_mesh(1), _tree_mesh(2), _cedar_mesh()]
+	var meshes := [_card_tree(1), _card_tree(2), _card_cedar()]
 	var sets := [[], [], []]
 	var cols := [[], [], []]
 	for k in range(0, t.tree_data.size(), 4):
@@ -312,12 +399,12 @@ func _trees() -> void:
 			var v := rng.randf_range(0.85, 1.15)
 			cols[k2].append(Color(v, v, v))
 	for kind in 3:
-		_mm_chunked(meshes[kind], sets[kind], foliage_mat, cols[kind], 160.0, 600.0)
+		_mm_chunked(meshes[kind], sets[kind], null, cols[kind], 160.0, 600.0)
 
 
 func _bushes() -> void:
 	# dense painted bushes along the verge, thickest on hairpin inner islands
-	var meshes := [_blob_mesh(5, 0.9, 1.0, 11), _blob_mesh(4, 0.7, 0.8, 12)]
+	var meshes := [_card_bush(11), _card_bush(12)]
 	var xf := [[], []]
 	var cols := [[], []]
 	var n := t.P.size()
@@ -341,7 +428,7 @@ func _bushes() -> void:
 				var v := rng.randf_range(0.85, 1.2)
 				cols[k].append(Color(v, v, v))
 	for k in 2:
-		_mm_chunked(meshes[k], xf[k], foliage_mat, cols[k], 120.0, 450.0)
+		_mm_chunked(meshes[k], xf[k], null, cols[k], 120.0, 450.0)
 
 
 func _poles() -> void:
@@ -925,12 +1012,10 @@ func _slope_protection() -> void:
 	# like Japanese mountain roads do: concrete lattice frames or wire rock
 	# netting, with a rock-fall catch fence along the bottom.
 	# painted moonlit look so the frames read at night, like the anime BGs
-	var lattice := _mat(Color(0.32, 0.4, 0.62), 0.9)
+	var lattice := _mat(Color(0.66, 0.68, 0.7), 0.9)
 	lattice.albedo_texture = _lattice_texture()
 	lattice.cull_mode = BaseMaterial3D.CULL_DISABLED
-	lattice.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	var net := _mat(Color(0.4, 0.48, 0.7), 0.6)
-	net.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var net := _mat(Color(0.6, 0.64, 0.7), 0.6)
 	net.albedo_texture = _net_texture()
 	net.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	net.alpha_scissor_threshold = 0.4
@@ -1032,7 +1117,7 @@ func _real_features() -> void:
 		var base := _poly_y(poly) - 0.3
 		var h: float = clampf(float(b.h), 3.0, 30.0)
 		var k := rng.randi() % walls.size()
-		_extrude(poly, base, h, _mat(walls[k], 0.85), _mat(roofs[k], 0.7), win)
+		_extrude(poly, base, h, _facade_mat(walls[k]), _roof_mat(roofs[k]), win)
 	# parking lots: flat asphalt on their real outline, with a lamp
 	var lot_mat := _mat(Color(0.15, 0.16, 0.19), 0.8)
 	for poly in t.features.get("parking", []):
@@ -1159,10 +1244,19 @@ func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: 
 		var b0 := Vector3(b.x, base, b.y)
 		var a1 := a0 + Vector3.UP * h
 		var b1 := b0 + Vector3.UP * h
-		st.add_vertex(a0); st.add_vertex(b1); st.add_vertex(b0)
-		st.add_vertex(a0); st.add_vertex(a1); st.add_vertex(b1)
-		# lit window on longer walls
-		if e.length() > 4.0 and rng.randf() < 0.45:
+		# facade texture: one tile = 8 m wide, two storeys (6 m) tall
+		var ua := 0.0
+		var ub := e.length() / 8.0
+		var vt := 0.0
+		var vb := h / 6.0
+		st.set_uv(Vector2(ua, vb)); st.add_vertex(a0)
+		st.set_uv(Vector2(ub, vt)); st.add_vertex(b1)
+		st.set_uv(Vector2(ub, vb)); st.add_vertex(b0)
+		st.set_uv(Vector2(ua, vb)); st.add_vertex(a0)
+		st.set_uv(Vector2(ua, vt)); st.add_vertex(a1)
+		st.set_uv(Vector2(ub, vt)); st.add_vertex(b1)
+		# windows now come from the facade texture
+		if false:
 			var mid := (a + b) * 0.5
 			var wb := Basis.looking_at(-nrm, Vector3.UP)
 			_piece(_boxm(Vector3(minf(e.length() * 0.4, 3.0), 0.9, 0.05)), win_mat,
@@ -1171,7 +1265,8 @@ func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: 
 	st.set_material(wall_mat)
 	wm.mesh = st.commit()
 	wm.material_override = wall_mat
-	wall_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if wall_mat is BaseMaterial3D:
+		wall_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_add(wm)
 	# flat roof slab with a slight overhang (Japanese houses vary; a slab reads well at night)
 	var tris := Geometry2D.triangulate_polygon(pts)
@@ -1184,12 +1279,37 @@ func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: 
 		for m in [0, 2, 1]:
 			var v := pts[tris[k + m]]
 			var o := (v - cen).normalized() * 0.4
+			rt.set_uv(Vector2(v.x + o.x, v.y + o.y) * 0.25)
 			rt.add_vertex(Vector3(v.x + o.x, base + h + 0.05, v.y + o.y))
 	var rm := MeshInstance3D.new()
 	roof_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	rt.set_material(roof_mat)
 	rm.mesh = rt.commit()
 	_add(rm)
+
+
+var _facade_tex: Texture2D
+var _roof_tex: Texture2D
+
+
+func _facade_mat(wall: Color) -> ShaderMaterial:
+	if _facade_tex == null:
+		_facade_tex = load("res://assets/textures/facade.png")
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/building.gdshader")
+	m.set_shader_parameter("facade", _facade_tex)
+	m.set_shader_parameter("wall_tint", Vector3(wall.r, wall.g, wall.b) * 1.15)
+	m.set_shader_parameter("lit_share", rng.randf_range(0.3, 0.7))
+	return m
+
+
+func _roof_mat(c: Color) -> StandardMaterial3D:
+	if _roof_tex == null:
+		_roof_tex = load("res://assets/textures/roof_tiles.png")
+	var m := _mat(c * 3.0, 0.6)
+	m.albedo_texture = _roof_tex
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	return m
 
 
 func _red_pavement() -> void:

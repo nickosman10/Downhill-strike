@@ -89,12 +89,13 @@ static func build_environment(parent: Node, dawn: bool) -> void:
 		light.rotation = Vector3(deg_to_rad(-14.0), deg_to_rad(40.0), 0)
 	else:
 		# First Stage night: everything washed in deep moonlit blue
-		env.ambient_light_color = Color(0.25, 0.38, 0.75)
-		env.ambient_light_energy = 0.7
-		env.fog_light_color = Color(0.04, 0.08, 0.2)
+		# moonlit night: cool but not monochrome, so greens, greys and paint still read
+		env.ambient_light_color = Color(0.4, 0.46, 0.64)
+		env.ambient_light_energy = 0.8
+		env.fog_light_color = Color(0.05, 0.08, 0.16)
 		env.fog_density = 0.0016
-		light.light_color = Color(0.5, 0.65, 1.0)
-		light.light_energy = 0.75
+		light.light_color = Color(0.66, 0.74, 0.95)
+		light.light_energy = 0.8
 		light.rotation = Vector3(deg_to_rad(-40.0), deg_to_rad(150.0), 0)
 	var sky := Sky.new()
 	if dawn:
