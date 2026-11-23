@@ -859,6 +859,20 @@ func _clear_spot(p: Vector3, need: float) -> bool:
 
 
 func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
+	# find a free spot: slide along the road if something already stands here
+	var along := toward_road.cross(Vector3.UP).normalized()
+	var spot := base
+	var found := false
+	for off: float in [0.0, 2.0, -2.0, 4.0, -4.0, 6.0, -6.0]:
+		var c := base + along * off
+		# the arm reaches 1.8 m toward the road, so check the pole and the arm tip
+		if not _blocked(c, 0.35) and not _blocked(c + toward_road * 1.8, 0.4):
+			spot = c
+			found = true
+			break
+	if not found:
+		return
+	base = spot
 	var pole_mat := _mat(Color(0.45, 0.47, 0.52), 0.5)
 	var col := Color(1.0, 0.72, 0.42) if warm else Color(0.85, 0.92, 1.0)
 	var pole := CylinderMesh.new()
@@ -897,6 +911,8 @@ func _street_lamps() -> void:
 
 
 func _vending(p: Vector3, facing: Vector3) -> void:
+	if _blocked(p, 0.6):
+		return
 	var b := Basis.looking_at(-facing, Vector3.UP)
 	var palette := [Color(0.85, 0.12, 0.1), Color(0.1, 0.35, 0.85), Color(0.95, 0.95, 0.95)]
 	var body := _mat(palette[rng.randi() % 3], 0.4)
@@ -1409,22 +1425,52 @@ func _real_features() -> void:
 
 
 func _bus_stop(at: Vector3, face: Vector3) -> void:
-	var pole := CylinderMesh.new()
-	pole.top_radius = 0.04
-	pole.bottom_radius = 0.06
-	pole.height = 2.2
-	_piece(pole, _mat(Color(0.7, 0.7, 0.72), 0.4), Transform3D(Basis(), at + Vector3.UP * 1.1))
-	var disc := CylinderMesh.new()
-	disc.top_radius = 0.3
-	disc.bottom_radius = 0.3
-	disc.height = 0.04
-	var b := Basis.looking_at(face, Vector3.UP) * Basis(Vector3.RIGHT, PI / 2)
-	_piece(disc, _emissive(Color(0.9, 0.9, 0.95), 0.6), Transform3D(b, at + Vector3.UP * 2.25))
-	# small shelter
+	# a small mountain bus shelter: framed back panel (timetable + poster),
+	# side panels, roof and bench, with the round stop sign on its own pole
+	var along := face.cross(Vector3.UP).normalized()
 	var back := at - face * 1.8
-	_piece(_boxm(Vector3(3.0, 2.3, 0.1)), _mat(Color(0.5, 0.55, 0.6), 0.5), Transform3D(Basis.looking_at(face, Vector3.UP), back + Vector3.UP * 1.15))
-	_piece(_boxm(Vector3(3.2, 0.1, 1.6)), _mat(Color(0.4, 0.42, 0.45), 0.5), Transform3D(Basis.looking_at(face, Vector3.UP), back + face * 0.7 + Vector3.UP * 2.35))
-	_lamp(at + face * -0.5, face, false)
+	if _blocked(back, 1.7) or _blocked(at + along * 2.0, 0.4):
+		return
+	var fb := Basis.looking_at(face, Vector3.UP)
+	var frame := _mat(Color(0.32, 0.34, 0.38), 0.5)
+	# back panel with the printed board facing the road
+	_piece(_boxm(Vector3(3.0, 2.3, 0.08)), frame, Transform3D(fb, back + Vector3.UP * 1.15))
+	var panel := QuadMesh.new()
+	panel.size = Vector2(2.7, 2.0)
+	var pm := _mat(Color.WHITE, 0.7)
+	pm.albedo_texture = load("res://assets/textures/shelter_panel.png")
+	pm.emission_enabled = true
+	pm.emission_texture = pm.albedo_texture
+	pm.emission = Color(0.12, 0.12, 0.12)
+	_piece(panel, pm, Transform3D(Basis.looking_at(-face, Vector3.UP), back + face * 0.05 + Vector3.UP * 1.2))
+	# side panels and roof
+	for sd: float in [-1.0, 1.0]:
+		_piece(_boxm(Vector3(0.06, 2.3, 1.4)), frame, Transform3D(fb, back + along * sd * 1.47 + face * 0.7 + Vector3.UP * 1.15))
+	_piece(_boxm(Vector3(3.3, 0.08, 1.7)), frame, Transform3D(fb, back + face * 0.75 + Vector3.UP * 2.34))
+	# bench
+	_piece(_boxm(Vector3(2.2, 0.06, 0.4)), _mat(Color(0.55, 0.4, 0.25), 0.7), Transform3D(fb, back + face * 0.35 + Vector3.UP * 0.45))
+	for sd: float in [-0.9, 0.9]:
+		_piece(_boxm(Vector3(0.06, 0.45, 0.35)), frame, Transform3D(fb, back + face * 0.35 + along * sd + Vector3.UP * 0.22))
+	# stop sign beside the shelter, plate facing the road both ways
+	var sp := at + along * 2.0
+	var pole := CylinderMesh.new()
+	pole.top_radius = 0.035
+	pole.bottom_radius = 0.05
+	pole.height = 2.2
+	_piece(pole, _mat(Color(0.75, 0.75, 0.77), 0.4), Transform3D(Basis(), sp + Vector3.UP * 1.1))
+	var plate := QuadMesh.new()
+	plate.size = Vector2(0.62, 0.62)
+	var sm := _mat(Color.WHITE, 0.5)
+	sm.albedo_texture = load("res://assets/textures/bus_stop_sign.png")
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	sm.alpha_scissor_threshold = 0.5
+	sm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	sm.emission_enabled = true
+	sm.emission_texture = sm.albedo_texture
+	sm.emission = Color(0.3, 0.3, 0.3)
+	_piece(plate, sm, Transform3D(Basis.looking_at(-along, Vector3.UP), sp + Vector3.UP * 2.25))
+	# lamp on the far side of the shelter, clear of the roof
+	_lamp(at - along * 2.6, face, false)
 
 
 func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: Material, win_mat: Material) -> void:

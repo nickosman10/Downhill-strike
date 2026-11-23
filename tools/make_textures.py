@@ -288,6 +288,71 @@ def masonry():
     save("masonry.png", np.stack([r, g, b], -1) * 255)
 
 
+JP = "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
+
+
+def _font(size):
+    from PIL import ImageFont
+    return ImageFont.truetype(JP, size)
+
+
+def bus_stop_sign():
+    """Round bus-stop plate: white face, blue ring, a simple bus pictogram and
+    the words "bus stop". Original design; transparent outside the disc."""
+    n = 256
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse([4, 4, n - 5, n - 5], fill=(30, 70, 160, 255))
+    d.ellipse([18, 18, n - 19, n - 19], fill=(245, 245, 240, 255))
+    # bus: body, windows, wheels
+    d.rounded_rectangle([60, 70, 196, 140], radius=12, fill=(30, 70, 160, 255))
+    for k in range(4):
+        x = 72 + k * 30
+        d.rectangle([x, 80, x + 22, 102], fill=(245, 245, 240, 255))
+    d.ellipse([78, 128, 102, 152], fill=(20, 20, 25, 255))
+    d.ellipse([154, 128, 178, 152], fill=(20, 20, 25, 255))
+    f = _font(40)
+    d.text((n / 2, 186), "バス停", fill=(30, 70, 160, 255), font=f, anchor="mm")
+    img.save(os.path.join(OUT, "bus_stop_sign.png"))
+    print("wrote bus_stop_sign.png")
+
+
+def shelter_panel():
+    """Back panel of a mountain bus shelter: a timetable board on the left and
+    a faded local poster on the right. Original design."""
+    w, h = 512, 384
+    img = Image.new("RGB", (w, h), (196, 198, 194))
+    d = ImageDraw.Draw(img)
+    # timetable board
+    d.rectangle([20, 24, 232, 360], fill=(250, 250, 246), outline=(60, 60, 70), width=4)
+    d.rectangle([20, 24, 232, 70], fill=(30, 70, 160))
+    d.text((126, 47), "時刻表", fill=(255, 255, 255), font=_font(30), anchor="mm")
+    f = _font(18)
+    times = ["6", "7", "8", "9", "11", "13", "15", "17", "18", "20"]
+    for k, hr in enumerate(times):
+        y = 84 + k * 27
+        d.text((34, y), hr, fill=(30, 30, 40), font=f)
+        mins = ["05", "32"] if k % 3 else ["15"]
+        d.text((84, y), "  ".join(mins), fill=(40, 40, 50), font=f)
+        d.line([28, y + 24, 224, y + 24], fill=(200, 200, 205), width=1)
+    # poster: hot-spring town at dusk (original)
+    d.rectangle([260, 24, 492, 360], fill=(242, 236, 222), outline=(90, 80, 70), width=3)
+    for y in range(40, 230):
+        t = (y - 40) / 190
+        col = (int(250 - 60 * t), int(170 - 40 * t), int(110 + 30 * t))
+        d.line([272, y, 480, y], fill=col)
+    d.polygon([(272, 230), (330, 150), (380, 200), (430, 130), (480, 210), (480, 230)], fill=(70, 60, 90))
+    for k in range(3):
+        x = 300 + k * 50
+        d.arc([x, 170, x + 30, 210], 200, 340, fill=(255, 255, 255), width=3)    # steam
+    d.text((376, 270), "温泉の町", fill=(120, 40, 30), font=_font(36), anchor="mm")
+    d.text((376, 318), "山を下りて ひと休み", fill=(80, 60, 50), font=_font(18), anchor="mm")
+    # weathering
+    arr = np.asarray(img, dtype=float)
+    arr *= (0.88 + 0.12 * tile_noise(512, 8, 3, 71)[:h, :w, None])
+    save("shelter_panel.png", arr)
+
+
 if __name__ == "__main__":
     asphalt()
     ground()
@@ -298,3 +363,5 @@ if __name__ == "__main__":
     cedar()
     canopy()
     masonry()
+    bus_stop_sign()
+    shelter_panel()
