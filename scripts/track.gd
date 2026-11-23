@@ -801,7 +801,11 @@ func terrain_height(x: float, z: float) -> float:
 	var h10 := terrain_h[j * nx + i + 1]
 	var h01 := terrain_h[(j + 1) * nx + i]
 	var h11 := terrain_h[(j + 1) * nx + i + 1]
-	return lerpf(lerpf(h00, h10, a), lerpf(h01, h11, a), b)
+	# same triangle split as the rendered mesh (diagonal from (i+1,j) to
+	# (i,j+1)), so walls, slope frames and trees sit exactly on what is drawn
+	if a + b <= 1.0:
+		return h00 + (h10 - h00) * a + (h01 - h00) * b
+	return h11 + (h01 - h11) * (1.0 - a) + (h10 - h11) * (1.0 - b)
 
 
 func _build_terrain() -> void:
@@ -809,6 +813,7 @@ func _build_terrain() -> void:
 	mat.shader = load("res://shaders/terrain.gdshader")
 	mat.set_shader_parameter("ground_tex", load("res://assets/textures/ground_detail.png"))
 	mat.set_shader_parameter("rock_tex", load("res://assets/textures/rock_detail.png"))
+	mat.set_shader_parameter("canopy_tex", load("res://assets/textures/canopy.png"))
 	if terrain_info.has("aerial"):
 		var tex: Texture2D = load("res://tracks/" + terrain_info.aerial)
 		if tex:
@@ -817,6 +822,7 @@ func _build_terrain() -> void:
 			mat.set_shader_parameter("aerial_size", Vector2(terrain_info.aerial_size[0], terrain_info.aerial_size[1]))
 			mat.set_shader_parameter("use_aerial", 1.0)
 	terrain_h = _load_grid(terrain_info)
+	_carve_corridor()
 	_grid_mesh(terrain_info, terrain_h, mat, Rect2())
 	if not far_info.is_empty():
 		# real mountains and valleys out to the horizon, with a hole where the
@@ -839,6 +845,40 @@ func _build_terrain() -> void:
 		water.material_override = wm
 		water.position = Vector3((lake_info.x0 + lake_info.x1) * 0.5, lake_info.y, (lake_info.z0 + lake_info.z1) * 0.5)
 		add_child(water)
+
+
+## Keep the hillside out of the road corridor: every terrain vertex within a
+## few metres of the road drops to just below the road, so the mountain starts
+## behind the wall instead of bulging through it. Tunnels keep their mountain.
+func _carve_corridor() -> void:
+	var nx: int = terrain_info.nx
+	var nz: int = terrain_info.nz
+	var cell: float = terrain_info.cell
+	var ox: float = terrain_info.origin[0]
+	var oz: float = terrain_info.origin[1]
+	var reach := rail + 2.6
+	var rc := int(ceil(reach / cell)) + 1
+	for i in range(0, P.size()):
+		if in_tunnel(i):
+			continue
+		var p := P[i]
+		var ci := int(round((p.x - ox) / cell))
+		var cj := int(round((p.z - oz) / cell))
+		var r2 := Vector2(R[i].x, R[i].z)
+		var d2 := Vector2(D[i].x, D[i].z)
+		for dj in range(-rc, rc + 1):
+			var gj := cj + dj
+			if gj < 0 or gj >= nz:
+				continue
+			for di in range(-rc, rc + 1):
+				var gi := ci + di
+				if gi < 0 or gi >= nx:
+					continue
+				var v := Vector2(ox + gi * cell - p.x, oz + gj * cell - p.z)
+				if absf(v.dot(d2)) > cell * 0.75 or absf(v.dot(r2)) > reach:
+					continue
+				var k := gj * nx + gi
+				terrain_h[k] = minf(terrain_h[k], p.y - 0.35)
 
 
 func _load_grid(info: Dictionary) -> PackedFloat32Array:

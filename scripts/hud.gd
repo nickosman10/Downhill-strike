@@ -234,7 +234,9 @@ func update_hud(r) -> void:
 	else:
 		combo_label.text = ""
 	var tags: Array[String] = []
-	if car.in_gutter:
+	if car.hooked:
+		tags.append("GUTTER HOOK")
+	elif car.in_gutter:
 		tags.append("GUTTER")
 	if car.blind:
 		tags.append("BLIND ATTACK x2")

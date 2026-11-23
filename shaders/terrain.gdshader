@@ -15,6 +15,8 @@ uniform float use_aerial = 0.0;
 // close-up surface detail so the ground does not read as flat colour
 uniform sampler2D ground_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D rock_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+// tree crowns: forested slopes read as a blanket of canopy, like the real hills
+uniform sampler2D canopy_tex : filter_linear_mipmap_anisotropic, repeat_enable;
 
 varying vec3 wpos;
 varying vec3 wnorm;
@@ -49,9 +51,14 @@ void fragment() {
 		// moonlit night grade of the real ground colours
 		float lum = dot(photo, vec3(0.3, 0.55, 0.15));
 		vec3 night = mix(vec3(lum), photo, 0.62) * vec3(0.42, 0.52, 0.85);
+		// forest in the photo (greener than it is red, not bright) becomes canopy
+		float forest = smoothstep(0.0, 0.05, photo.g - photo.r) * (1.0 - smoothstep(0.35, 0.6, lum));
+		float crowns = texture(canopy_tex, wpos.xz / 14.0).r * 0.6 + texture(canopy_tex, wpos.xz / 37.0 + 0.3).r * 0.4;
+		vec3 canopy_col = mix(vec3(0.02, 0.05, 0.04), vec3(0.12, 0.2, 0.2), crowns) * vec3(0.8, 0.95, 1.25);
+		night = mix(night, canopy_col * (0.7 + photo.g * 1.2), forest * (1.0 - rock) * 0.85);
 		// steep cuts read as rock even where the photo shows canopy
 		night = mix(night, rock_col * strata, rock * 0.6);
-		base = night * 0.75;
+		base = night * 0.8;
 	}
 	// detail: grass/leaf litter on the flats, layered rock on the cuts
 	vec3 g = texture(ground_tex, wpos.xz * 0.22).rgb;

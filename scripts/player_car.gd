@@ -76,7 +76,9 @@ var _drift_exit := false
 var _drift_omega := 0.0
 var _recover := 0.0          # seconds of eased steering after a drift ends
 var stagger := 0.0           # seconds of lost control after a crash
-var auto_stop := false       # after the finish line: brake to a stop along the road
+var auto_stop := false
+var hooked := false          # inside wheels locked in the gutter: the car follows the corner
+var _hook_dir := 0.0       # after the finish line: brake to a stop along the road
 const RECOVER_T := 0.7
 var _brake_down_at := -10.0
 var _brake_up_at := -10.0
@@ -204,6 +206,16 @@ func physics_step(dt: float) -> void:
 			_award("GUTTER HOOK", 300, Color(0.3, 0.9, 1.0))
 	else:
 		gutter_time = 0.0
+	# --- gutter hook: drop the inside wheels in and the gutter carries you round
+	if not hooked and in_gutter and speed > 8.0 and control_enabled:
+		hooked = true
+		_hook_dir = inner
+	if hooked:
+		var keep := absf(curv) > 1.0 / 150.0 and signf(curv) == _hook_dir \
+			and target_steer * _hook_dir > -0.35 and control_enabled
+		if not keep:
+			hooked = false
+			_recover = RECOVER_T * 0.6
 
 	# --- drift entry: only on purpose (no surprise slides)
 	var braking_now := brake > 0.85
@@ -283,6 +295,23 @@ func physics_step(dt: float) -> void:
 			mu_lat *= 0.75
 		var max_rot := mu_lat * G / maxf(speed, 2.0) * dt
 		vel = vel.rotated(clampf(diff, -max_rot, max_rot))
+
+	# --- hooked in the gutter: travel follows the road exactly, speed is kept
+	if hooked:
+		if drifting:
+			drifting = false
+			_drift_exit = false
+		var rd := Vector2(track.D[idx].x, track.D[idx].z).normalized()
+		var spd := vel.length()
+		vel = vel.lerp(rd * spd, 1.0 - exp(-10.0 * dt))
+		var road_yaw := atan2(rd.y, rd.x)
+		yaw = lerp_angle(yaw, road_yaw + _hook_dir * 0.08, 1.0 - exp(-7.0 * dt))
+		yaw_rate = spd * curv
+		fwd = forward2()
+		# hold the inside wheels down in the gutter
+		var want := _hook_dir * (track.hw - 0.45)
+		var r3 := track.R[idx]
+		pos += Vector3(r3.x, 0, r3.z) * (want - lat) * minf(1.0, 5.0 * dt)
 
 	# --- longitudinal
 	speed = vel.length()

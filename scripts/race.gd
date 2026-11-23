@@ -47,6 +47,7 @@ func _ready() -> void:
 		rival = RivalCar.new()
 		add_child(rival)
 		rival.setup(track, course.rival, track.start_s - 6.0, track.hw * 0.45)
+		rival.player = car
 
 	cam = ChaseCamera.new()
 	cam.car = car

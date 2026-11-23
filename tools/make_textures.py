@@ -235,6 +235,32 @@ def cedar():
     print("wrote cedar.png")
 
 
+def canopy():
+    """Forest canopy seen from a distance: packed tree crowns, lit from the
+    upper left, dark gaps between them. Greyscale, tileable."""
+    n = 512
+    img = np.full((n, n), 0.18)
+    yy, xx = np.mgrid[0:n, 0:n]
+    for _ in range(900):
+        cx, cy = rng.integers(0, n, 2)
+        r = rng.integers(9, 22)
+        for ox in (-n, 0, n):
+            for oy in (-n, 0, n):
+                x0, y0 = cx + ox, cy + oy
+                if x0 + r < 0 or x0 - r > n or y0 + r < 0 or y0 - r > n:
+                    continue
+                sl = (slice(max(0, y0 - r), min(n, y0 + r)), slice(max(0, x0 - r), min(n, x0 + r)))
+                dx = (xx[sl] - x0) / r
+                dy = (yy[sl] - y0) / r
+                d = dx * dx + dy * dy
+                inside = d < 1.0
+                shade = 0.55 + 0.45 * np.clip(-(dx + dy) * 0.7 + 0.3, -1, 1) - d * 0.25
+                top = np.where(inside, shade, -1)
+                img[sl] = np.maximum(img[sl], top)
+    img = np.clip(img, 0, 1) * (0.8 + 0.2 * tile_noise(n, 30, 2, 51))
+    save("canopy.png", img * 255, "L")
+
+
 if __name__ == "__main__":
     asphalt()
     ground()
@@ -243,3 +269,4 @@ if __name__ == "__main__":
     roof()
     leaves()
     cedar()
+    canopy()

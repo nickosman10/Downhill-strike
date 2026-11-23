@@ -658,15 +658,35 @@ func _city() -> void:
 				p.y = t.far_height(p.x, p.z) + 4.0 + rng.randf_range(0.0, 6.0)
 			else:
 				p.y = floor_y + rng.randf_range(0.0, 6.0)
-			var sz := rng.randf_range(9.0, 18.0) * (1.0 + c.distance_to(finish) / 8000.0)
+			# big and bright enough to read from the road, not only from a lookout
+			var sz := rng.randf_range(16.0, 30.0) * (1.0 + c.distance_to(finish) / 5000.0)
 			# billboards ignore multimesh instance positions, so face each light at the pass instead
 			var to_pass := (finish - p)
 			to_pass.y = 0.0
 			xf.append(Transform3D(Basis.looking_at(to_pass.normalized(), Vector3.UP).scaled(Vector3(sz, sz, sz)), p))
 			var col: Color = palette[rng.randi() % palette.size()]
-			cols.append(col * rng.randf_range(0.45, 0.95))
+			cols.append(col * rng.randf_range(1.1, 2.2))
 	_mm(quad, xf, m, cols)
 	if not t.towns_data.is_empty():
+		# warm light haze hanging over each real town
+		for town in towns:
+			var hz := MeshInstance3D.new()
+			var hq := QuadMesh.new()
+			var rad: float = town[1]
+			hq.size = Vector2(rad * 3.2, rad * 0.9)
+			hz.mesh = hq
+			var hm := StandardMaterial3D.new()
+			hm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			hm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			hm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			hm.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+			hm.disable_fog = true
+			hm.albedo_texture = CarModel._shadow_texture()
+			hm.albedo_color = Color(0.45, 0.28, 0.15, 0.35)
+			hz.material_override = hm
+			var tc: Vector3 = town[0]
+			hz.position = Vector3(tc.x, t.far_height(tc.x, tc.z) + rad * 0.25, tc.z)
+			_add(hz)
 		return
 	# warm haze over the towns
 	var glow := MeshInstance3D.new()
@@ -861,8 +881,8 @@ func _curve_signs_and_mirrors() -> void:
 	sign_mat.emission_texture = sign_mat.albedo_texture
 	sign_mat.emission = Color(0.35, 0.35, 0.35)
 	var pole_mat := _mat(Color(0.6, 0.62, 0.65), 0.4)
-	var orange := _mat(Color(0.95, 0.45, 0.1), 0.5)
-	var mirror_mat := _mat(Color(0.75, 0.8, 0.9), 0.05)
+	var orange := _mat(Color(0.96, 0.42, 0.06), 0.35)
+	var mirror_mat := _mat(Color(0.82, 0.86, 0.92), 0.03)
 	mirror_mat.metallic = 1.0
 	var n := t.P.size()
 	var i := 1
@@ -886,28 +906,54 @@ func _curve_signs_and_mirrors() -> void:
 			var side := -signf(t.K[i])
 			var mp: Vector3 = t.P[j] + t.R[j] * side * (t.rail + 0.5)
 			if _clear_spot(mp, t.rail + 0.3):
-				var post := CylinderMesh.new()
-				post.top_radius = 0.045
-				post.bottom_radius = 0.045
-				post.height = 2.6
-				post.radial_segments = 6
-				_piece(post, orange, Transform3D(Basis(), mp + Vector3.UP * 1.3))
-				var disc := CylinderMesh.new()
-				disc.top_radius = 0.42
-				disc.bottom_radius = 0.42
-				disc.height = 0.05
-				disc.radial_segments = 16
 				var look: Vector3 = (-t.D[j] - t.R[j] * side * 0.6).normalized()
-				var b := Basis.looking_at(look, Vector3.UP) * Basis(Vector3.RIGHT, PI / 2)
-				_piece(disc, mirror_mat, Transform3D(b, mp + Vector3.UP * 2.75))
-				var rim := CylinderMesh.new()
-				rim.top_radius = 0.47
-				rim.bottom_radius = 0.47
-				rim.height = 0.04
-				rim.radial_segments = 16
-				_piece(rim, orange, Transform3D(b, mp + Vector3.UP * 2.75 - look * 0.03))
+				_curve_mirror(mp, look, orange, mirror_mat)
 		corner += 1
 		i += 15
+
+
+## Japanese curve mirror: tall orange pole, a short bracket, and a round
+## convex mirror in a deep orange housing with a dark rim.
+func _curve_mirror(base: Vector3, look: Vector3, orange: Material, mirror_mat: Material) -> void:
+	var pole := CylinderMesh.new()
+	pole.top_radius = 0.04
+	pole.bottom_radius = 0.045
+	pole.height = 3.2
+	pole.radial_segments = 10
+	_piece(pole, orange, Transform3D(Basis(), base + Vector3.UP * 1.6))
+	var cap := SphereMesh.new()
+	cap.radius = 0.05
+	cap.height = 0.1
+	_piece(cap, orange, Transform3D(Basis(), base + Vector3.UP * 3.2))
+	var centre := base + Vector3.UP * 2.95 + look * 0.16
+	var face_b := Basis.looking_at(look, Vector3.UP) * Basis(Vector3.RIGHT, -PI / 2)   # +Y -> look
+	var back_b := Basis.looking_at(-look, Vector3.UP) * Basis(Vector3.RIGHT, -PI / 2)
+	# bracket from the pole to the back of the housing
+	_piece(_boxm(Vector3(0.06, 0.08, 0.2)), orange, Transform3D(Basis.looking_at(look, Vector3.UP), base + Vector3.UP * 2.95 + look * 0.06))
+	# deep housing behind the mirror
+	var shell := SphereMesh.new()
+	shell.radius = 0.43
+	shell.height = 0.26
+	shell.is_hemisphere = true
+	shell.radial_segments = 24
+	shell.rings = 6
+	_piece(shell, orange, Transform3D(back_b, centre))
+	# convex mirror face, slightly domed
+	var face := SphereMesh.new()
+	face.radius = 0.39
+	face.height = 0.07
+	face.is_hemisphere = true
+	face.radial_segments = 24
+	face.rings = 4
+	_piece(face, mirror_mat, Transform3D(face_b, centre + look * 0.01))
+	# rim
+	var rim := TorusMesh.new()
+	rim.inner_radius = 0.37
+	rim.outer_radius = 0.45
+	rim.rings = 24
+	rim.ring_segments = 6
+	var rim_mat := _mat(Color(0.06, 0.06, 0.07), 0.6)
+	_piece(rim, rim_mat, Transform3D(face_b, centre + look * 0.015))
 
 
 func _skid_marks() -> void:
@@ -1045,7 +1091,7 @@ func _slope_protection() -> void:
 				for l in lats:
 					var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + l)
 					var hy := t.terrain_height(p.x, p.z)
-					p.y = maxf(hy, t.P[i].y + 0.2) + 0.15
+					p.y = maxf(hy, t.P[i].y + 0.2) + 0.5
 					row.append(p)
 			if ok and not prev_ok:
 				run_kind = int(t.S[i] / 90.0) % 2
@@ -1377,54 +1423,108 @@ func _chevron_rows() -> void:
 # ------------------------------------------------------------------ tunnels
 
 func _tunnels() -> void:
-	# concrete tube with a row of orange sodium lamps, like the anime tunnels
-	# dark concrete so the moonlit ambient doesn't wash it out; the sodium
-	# lamps give the warm orange glow
-	var wall := _mat(Color(0.13, 0.12, 0.12), 0.95)
-	wall.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var lamp := _emissive(Color(1.0, 0.62, 0.22), 6.0)
+	# Japanese mountain tunnel: straight side walls faced with light tiles up
+	# to ~1.8 m, a concrete arch above, raised walkway curbs on both sides and a
+	# line of sodium lamp fixtures along one side of the arch.
+	var tile_img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	for y in 64:
+		for x in 64:
+			var grout := x % 16 == 0 or y % 16 == 0
+			var v := 0.62 + 0.04 * sin(float(x * 7 + y * 13))
+			tile_img.set_pixel(x, y, Color(0.38, 0.38, 0.37) if grout else Color(v, v * 0.98, v * 0.93))
+	tile_img.generate_mipmaps()
+	var tiles := _mat(Color(0.8, 0.8, 0.78), 0.35)
+	tiles.albedo_texture = ImageTexture.create_from_image(tile_img)
+	tiles.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var arch := _mat(Color(0.42, 0.42, 0.42), 0.95)
+	arch.albedo_texture = load("res://assets/textures/concrete.png")
+	arch.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var curb_mat := _mat(Color(0.58, 0.58, 0.56), 0.9)
+	curb_mat.albedo_texture = load("res://assets/textures/concrete.png")
+	curb_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var housing := _mat(Color(0.25, 0.25, 0.27), 0.6)
+	var lamp := _emissive(Color(1.0, 0.62, 0.22), 7.0)
+	var portal_mat := _mat(Color(0.6, 0.6, 0.58), 0.9)
+	portal_mat.albedo_texture = load("res://assets/textures/concrete.png")
 	for tn in t.tunnels:
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var w := t.rail + 0.3
-		# cross-section: wall up, curved roof, wall down (lateral, height)
-		var prof := [[-w, -0.2], [-w, 3.2], [-w * 0.75, 4.6], [-w * 0.35, 5.3], [0.0, 5.5],
-			[w * 0.35, 5.3], [w * 0.75, 4.6], [w, 3.2], [w, -0.2]]
+		var spring := 1.9                     # where the walls turn into the arch
+		var rise := w * 0.78                  # arch height above the springline
+		# cross-section (lateral, height, surface of the segment ENDING here:
+		# 0 = wall tiles, 1 = arch, 2 = walkway). The walkway is part of the
+		# section, so it runs smooth and continuous along the whole tunnel.
+		var walk := 0.85      # walkway width
+		var kerb := 0.22      # kerb height
+		var prof := [[-(w - walk), -0.05, 2], [-(w - walk), kerb, 2], [-(w - walk) - 0.06, kerb + 0.02, 2],
+			[-w, kerb + 0.03, 2], [-w, spring, 0]]
+		for k in range(1, 12):
+			var ang := PI - PI * k / 12.0
+			prof.append([w * cos(ang), spring + rise * sin(ang), 1])
+		prof.append([w, spring, 1])
+		prof.append([w, kerb + 0.03, 0])
+		prof.append([(w - walk) + 0.06, kerb + 0.02, 2])
+		prof.append([w - walk, kerb, 2])
+		prof.append([w - walk, -0.05, 2])
+		var sts := [SurfaceTool.new(), SurfaceTool.new(), SurfaceTool.new()]
+		for st: SurfaceTool in sts:
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var i0: int = maxi(int(tn[0]), 1)
 		var i1: int = mini(int(tn[1]), t.P.size() - 1)
+		# running length around the profile for texture coordinates
+		var plen := [0.0]
+		for k in range(1, prof.size()):
+			plen.append(plen[k - 1] + Vector2(prof[k][0] - prof[k - 1][0], prof[k][1] - prof[k - 1][1]).length())
 		for i in range(i0, i1 + 1):
+			var v0: float = t.S[i - 1] / 2.0
+			var v1: float = t.S[i] / 2.0
 			for k in prof.size() - 1:
+				var surf: int = prof[k + 1][2]
+				var st: SurfaceTool = sts[surf]
 				var a: Vector3 = t.P[i - 1] + t.R[i - 1] * prof[k][0] + Vector3.UP * prof[k][1]
 				var b: Vector3 = t.P[i - 1] + t.R[i - 1] * prof[k + 1][0] + Vector3.UP * prof[k + 1][1]
 				var c: Vector3 = t.P[i] + t.R[i] * prof[k][0] + Vector3.UP * prof[k][1]
 				var d: Vector3 = t.P[i] + t.R[i] * prof[k + 1][0] + Vector3.UP * prof[k + 1][1]
-				var mid := (a + d) * 0.5
-				var inward: Vector3 = (t.P[i] + Vector3.UP * 2.5 - mid).normalized()
+				var u0: float = plen[k] / 2.0
+				var u1: float = plen[k + 1] / 2.0
+				var inward: Vector3 = (t.P[i] + Vector3.UP * 2.5 - (a + d) * 0.5).normalized()
 				st.set_normal(inward)
-				st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
-				st.add_vertex(b); st.add_vertex(d); st.add_vertex(c)
-			if (i - i0) % 6 == 0:
-				var lp: Vector3 = t.P[i] + t.R[i] * (-w * 0.6) + Vector3.UP * 4.85
-				_piece(_boxm(Vector3(0.3, 0.12, 1.2)), lamp, Transform3D(Basis.looking_at(t.D[i], Vector3.UP), lp))
-				if (i - i0) % 12 == 0:
+				st.set_uv(Vector2(u0, v0)); st.add_vertex(a)
+				st.set_uv(Vector2(u1, v0)); st.add_vertex(b)
+				st.set_uv(Vector2(u0, v1)); st.add_vertex(c)
+				st.set_uv(Vector2(u1, v0)); st.add_vertex(b)
+				st.set_uv(Vector2(u1, v1)); st.add_vertex(d)
+				st.set_uv(Vector2(u0, v1)); st.add_vertex(c)
+			# lamp fixtures in a line along the left side of the arch
+			if (i - i0) % 5 == 0:
+				var lp: Vector3 = t.P[i] + t.R[i] * (-w * 0.55) + Vector3.UP * (spring + rise * 0.82)
+				var lb := Basis.looking_at(t.D[i], Vector3.UP) * Basis(Vector3.BACK, -0.6)
+				_piece(_boxm(Vector3(0.45, 0.16, 1.3)), housing, Transform3D(lb, lp))
+				_piece(_boxm(Vector3(0.34, 0.04, 1.1)), lamp, Transform3D(lb, lp + lb.y * -0.08))
+				if (i - i0) % 15 == 0:
 					var l := OmniLight3D.new()
 					l.light_color = Color(1.0, 0.62, 0.3)
-					l.light_energy = 3.2
-					l.omni_range = 16.0
-					l.position = lp + Vector3.DOWN * 0.6
+					l.light_energy = 3.0
+					l.omni_range = 18.0
+					l.position = lp + Vector3.DOWN * 1.0 + t.R[i] * 1.0
 					_add(l)
-		st.set_material(wall)
-		var mi := MeshInstance3D.new()
-		mi.mesh = st.commit()
-		_add(mi)
-		# portal faces
+		for k in 3:
+			var st: SurfaceTool = sts[k]
+			st.set_material([tiles, arch, curb_mat][k])
+			var mi := MeshInstance3D.new()
+			mi.mesh = st.commit()
+			_add(mi)
+		# portals: a concrete headwall with the arch opening, wing walls either side
 		for end in [i0, i1]:
 			var fwd: Vector3 = t.D[end] * (-1.0 if end == i0 else 1.0)
-			# concrete facade above the arch (the opening itself stays clear)
-			var pc: Vector3 = t.P[end] + Vector3.UP * 9.1 + fwd * 0.3
-			_piece(_boxm(Vector3(w * 2.0 + 3.0, 7.0, 0.6)), _mat(Color(0.5, 0.5, 0.52), 0.9),
-				Transform3D(Basis.looking_at(fwd, Vector3.UP), pc))
+			var b := Basis.looking_at(fwd, Vector3.UP)
+			var top := spring + rise
+			var pc: Vector3 = t.P[end] + Vector3.UP * (top + 2.4) + fwd * 0.4
+			_piece(_boxm(Vector3(w * 2.0 + 4.0, 4.4, 0.8)), portal_mat, Transform3D(b, pc))
+			# arch ring around the opening
+			for k in 12:
+				var ang := PI * (k + 0.5) / 12.0
+				var rp: Vector3 = t.P[end] + t.R[end] * (w + 0.35) * cos(ang) + Vector3.UP * (spring + (rise + 0.35) * sin(ang)) + fwd * 0.45
+				_piece(_boxm(Vector3(0.6, 0.7, 0.9)), portal_mat, Transform3D(b * Basis(Vector3.BACK, -ang + PI / 2), rp))
 			for sd: float in [-1.0, 1.0]:
-				var side_p: Vector3 = t.P[end] + t.R[end] * sd * (w + 1.0) + Vector3.UP * 3.0 + fwd * 0.3
-				_piece(_boxm(Vector3(2.0, 6.0, 0.6)), _mat(Color(0.5, 0.5, 0.52), 0.9),
-					Transform3D(Basis.looking_at(fwd, Vector3.UP), side_p))
+				var side_p: Vector3 = t.P[end] + t.R[end] * sd * (w + 1.4) + Vector3.UP * (top * 0.5 + 0.8) + fwd * 0.4
+				_piece(_boxm(Vector3(2.0, top + 1.6, 0.8)), portal_mat, Transform3D(b, side_p))

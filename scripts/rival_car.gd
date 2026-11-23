@@ -17,6 +17,7 @@ var rattled := 0.0      # >0 while spooked by a lights-off chaser
 var _yaw_offset := 0.0
 var _lights := true
 var _power := 4.0
+var player: Node3D = null    # the player's car (PlayerCar), for racecraft
 
 
 func setup(t: Track, rival: Dictionary, start_s: float, start_lat: float) -> void:
@@ -27,7 +28,9 @@ func setup(t: Track, rival: Dictionary, start_s: float, start_lat: float) -> voi
 	var skill: float = rival.get("skill", 1.0)
 	var ph := Cars.physics(rival.get("car", "s13"))
 	_power = ph.power * skill
-	profile = track.speed_profile(1.02 * ph.grip * skill, ph.power * 0.95 * skill)
+	# like the anime: rivals are strong on the straights, and the corners are
+	# where a driver who drifts and hooks the gutters can catch them
+	profile = track.speed_profile(0.97 * ph.grip * skill, ph.power * 1.05 * skill)
 	s = start_s
 	lat = start_lat
 	_place(0.0)
@@ -42,14 +45,30 @@ func step(dt: float, race_time: float) -> void:
 	if rattled > 0.0:
 		rattled -= dt
 		target *= 0.93
+	var look_k := track.curvature_at(s + 18.0 + v * 0.6)
+	var give_way := false
+	if player and not finished:
+		var gap: float = s - player.s
+		# keep the battle close: ease off when far ahead, push when dropped
+		if gap > 80.0:
+			target *= 0.96
+		elif gap < -40.0:
+			target *= 1.05
+		# a car alongside on the inside of the corner gets room: take the
+		# outside line and lift, so a better line lets the player through
+		var inside: bool = signf(player.lat) == signf(look_k) and absf(player.lat) > 0.6
+		if absf(gap) < 7.0 and absf(look_k) > 1.0 / 70.0 and inside:
+			give_way = true
+			target *= 0.95
 	if finished:
 		target = maxf(0.0, v - 8.0)
 	var accel := clampf(_power / maxf(v, 4.0), 2.0, 6.0) if target > v else -9.0
 	v = move_toward(v, target, absf(accel) * dt)
 	s += v * dt
 	# inside line: look ahead for the next corner
-	var look_k := track.curvature_at(s + 18.0 + v * 0.6)
 	var want := clampf(look_k * 160.0, -1.0, 1.0) * (track.hw - 1.1)
+	if give_way:
+		want = -signf(look_k) * (track.hw - 1.1)
 	lat = move_toward(lat, want, dt * 2.2)
 	if not finished and s >= track.finish_s:
 		finished = true
