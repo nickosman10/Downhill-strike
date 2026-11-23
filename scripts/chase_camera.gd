@@ -7,6 +7,12 @@ var car: PlayerCar
 var mode := 0
 var _look := Vector3.ZERO
 var _dir := Vector3.FORWARD
+var _shake := 0.0
+
+
+## Jolt the camera on impacts (0..1).
+func shake(amount: float) -> void:
+	_shake = maxf(_shake, amount)
 
 
 func snap() -> void:
@@ -38,6 +44,10 @@ func follow(dt: float) -> void:
 			want = _keep_over_road(want)
 			global_position = global_position.lerp(want, 1.0 - exp(-9.0 * dt))
 			_look = _look.lerp(cp + Vector3.UP * 0.9 + _dir * 2.0, 1.0 - exp(-14.0 * dt))
+			if _shake > 0.0:
+				_shake = maxf(0.0, _shake - dt * 2.2)
+				var j := _shake * _shake * 0.35
+				global_position += Vector3(randf_range(-j, j), randf_range(-j, j) * 0.6, randf_range(-j, j))
 			look_at(_look, Vector3.UP)
 			fov = lerpf(fov, 68.0 + clampf(car.speed * 0.35, 0.0, 16.0), 1.0 - exp(-3.0 * dt))
 		2:

@@ -105,6 +105,20 @@ func _button(text: String, size_px := 18, h := 42) -> Button:
 	return b
 
 
+const UI_SIZE := Vector2(1600, 960)
+var _ui: Control
+
+
+func _fit_ui() -> void:
+	if not is_instance_valid(_ui):
+		return
+	var vs := get_viewport().get_visible_rect().size
+	var k := minf(vs.x / UI_SIZE.x, vs.y / UI_SIZE.y)
+	_ui.scale = Vector2(k, k)
+	_ui.position = Vector2.ZERO
+	_ui.size = vs / k
+
+
 func _ready() -> void:
 	courses = Courses.all()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -125,11 +139,18 @@ func _ready() -> void:
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(shade)
 
+	# the whole menu is laid out for a 1600x960 canvas and scaled down to fit
+	# any window, so nothing is ever cut off on small or high-DPI screens
+	_ui = Control.new()
+	_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_ui)
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 28)
-	add_child(margin)
+	_ui.add_child(margin)
+	get_viewport().size_changed.connect(_fit_ui)
+	_fit_ui.call_deferred()
 	var root := HBoxContainer.new()
 	root.add_theme_constant_override("separation", 22)
 	margin.add_child(root)

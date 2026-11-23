@@ -73,6 +73,11 @@ var _steer_hist: Array = []      # [time, sign] of strong steering inputs
 var drift_dir := 0.0             # +1 drifting through a right-hander, -1 left
 var drift_beta := 0.0            # current body angle to the direction of travel
 var _drift_exit := false
+var _drift_omega := 0.0
+var _recover := 0.0          # seconds of eased steering after a drift ends
+var stagger := 0.0           # seconds of lost control after a crash
+var auto_stop := false       # after the finish line: brake to a stop along the road
+const RECOVER_T := 0.7
 var _brake_down_at := -10.0
 var _brake_up_at := -10.0
 var _was_braking := false
@@ -157,7 +162,24 @@ func physics_step(dt: float) -> void:
 			target_steer = bot_steer
 		else:
 			target_steer = Input.get_action_strength("steer_right") - Input.get_action_strength("steer_left")
+	if auto_stop:
+		throttle = 0.0
+		brake = 0.0
+		handbrake = false
+		var rd := track.D[idx]
+		var want_yaw := atan2(rd.z, rd.x)
+		target_steer = clampf(wrapf(want_yaw - yaw, -PI, PI) * 2.0, -1.0, 1.0)
+	if stagger > 0.0:
+		stagger -= dt
+		throttle *= 0.25
+		target_steer *= 0.5
+	if _recover > 0.0:
+		_recover -= dt
+		# steering comes back gradually so a counter-steer can't flick the car round
+		target_steer *= lerpf(1.0, 0.45, _recover / RECOVER_T)
 	var rate := 5.0 if absf(target_steer) > absf(steer) else 7.0
+	if _recover > 0.0:
+		rate *= 0.6
 	steer = move_toward(steer, target_steer, rate * dt)
 
 	var fwd := forward2()
@@ -206,7 +228,7 @@ func physics_step(dt: float) -> void:
 		var r_t := v_long * tan(steer * max_steer) / WHEELBASE
 		var r_max := mu * G / maxf(speed, 1.0)
 		r_t = clampf(r_t, -r_max, r_max)
-		yaw_rate = lerpf(yaw_rate, r_t, 1.0 - exp(-10.0 * dt))
+		yaw_rate = lerpf(yaw_rate, r_t, 1.0 - exp(-(6.0 if _recover > 0.0 else 10.0) * dt))
 	else:
 		yaw_rate = 0.0
 	yaw = wrapf(yaw + yaw_rate * dt, -PI, PI)
@@ -219,7 +241,11 @@ func physics_step(dt: float) -> void:
 		var beta_t := (0.32 + 0.3 * into - 0.28 * counter + 0.12 * throttle) * lerpf(0.75, 1.0, drift_angle)
 		if _drift_exit:
 			beta_t = 0.0
-		drift_beta = move_toward(drift_beta, beta_t, dt * (1.6 if _drift_exit else 1.2))
+		if _drift_exit:
+			# ease the angle out smoothly instead of a linear snap
+			drift_beta = lerpf(drift_beta, 0.0, 1.0 - exp(-3.2 * dt))
+		else:
+			drift_beta = move_toward(drift_beta, beta_t, dt * 1.2)
 		# how hard the travel direction swings round the corner
 		var lat_g := G * drift_g * (0.55 + 0.5 * into - 0.35 * counter) * (1.6 if in_gutter else 1.0)
 		var omega := drift_dir * lat_g / maxf(speed, 6.0)
@@ -230,6 +256,7 @@ func physics_step(dt: float) -> void:
 		var edge := clampf((absf(lat) - (track.hw - 1.4)) / 1.6, 0.0, 1.0)
 		omega -= signf(lat) * edge * 0.9
 		vel = vel.rotated(omega * dt)
+		_drift_omega = omega
 		var travel := vel.angle()
 		var want_yaw := travel + drift_dir * drift_beta
 		var dyaw := wrapf(want_yaw - yaw, -PI, PI)
@@ -243,10 +270,8 @@ func physics_step(dt: float) -> void:
 			_idle_time = 0.0
 		if _idle_time > 0.35 or speed < 7.0:
 			_drift_exit = true
-		if _drift_exit and drift_beta < 0.04:
-			drifting = false
-			_drift_exit = false
-			yaw = travel
+		if _drift_exit and drift_beta < 0.035:
+			_end_drift()
 			fwd = forward2()
 	# --- velocity direction follows heading, limited by tyre grip
 	if speed > 0.3 and not drifting:
@@ -289,6 +314,10 @@ func physics_step(dt: float) -> void:
 	vel += tdir * (-G * track.G[idx]) * dt
 	if not control_enabled and hold_brake:
 		vel = Vector2.ZERO
+	if auto_stop:
+		vel = vel.move_toward(Vector2.ZERO, 8.0 * dt)
+		if s > track.length - 6.0:
+			vel = Vector2.ZERO
 
 	# --- move & collide with guardrails
 	pos.x += vel.x * dt
@@ -316,8 +345,7 @@ func physics_step(dt: float) -> void:
 				road_yaw += PI
 			yaw = lerp_angle(yaw, road_yaw, clampf(v_out * 0.06, 0.1, 0.45))
 			if drifting:
-				drifting = false
-				_drift_exit = false
+				_end_drift()
 			if v_out > 2.0:
 				_crash(v_out)
 		vel *= 1.0 - 0.5 * dt   # scraping along the rail
@@ -368,6 +396,15 @@ func _detect_inertia_drift(target_steer: float) -> void:
 				_award("INERTIA DRIFT", 250, Color(1.0, 0.8, 0.2))
 
 
+func _end_drift() -> void:
+	# hand over to grip driving without a jump: keep the car's current turning
+	# rate and let the tyres pull the travel direction in line over a moment
+	drifting = false
+	_drift_exit = false
+	yaw_rate = _drift_omega
+	_recover = RECOVER_T
+
+
 func _start_drift(dir: float) -> void:
 	if dir == 0.0:
 		return
@@ -406,6 +443,9 @@ func _award(text: String, pts: int, color: Color) -> void:
 
 
 func _crash(impact: float) -> void:
+	# crashing costs real time: scrubbed speed and a moment of lost control
+	vel *= 1.0 - clampf(impact * 0.05, 0.1, 0.6)
+	stagger = maxf(stagger, clampf(impact * 0.1, 0.35, 1.6))
 	if combo > 0.0:
 		popup.emit("COMBO LOST", Color(1.0, 0.3, 0.2))
 	combo = 0.0

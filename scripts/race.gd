@@ -150,6 +150,7 @@ func _physics_process(dt: float) -> void:
 		State.FINISHED:
 			car.control_enabled = false
 			car.hold_brake = false
+			car.auto_stop = true
 	car.physics_step(dt)
 	if rival:
 		rival.step(dt, race_time)
@@ -201,6 +202,7 @@ func _resolve_contact() -> void:
 			var excess := car.vel.dot(d2) - rival.v * 0.95
 			if excess > 0.0:
 				car.vel -= d2 * excess
+				_contact(excess)
 		else:
 			rival.v *= 0.97
 	if pen_s > 0.6 or pen_l > 0.3:
@@ -209,6 +211,7 @@ func _resolve_contact() -> void:
 
 func _blind_attack(dt: float) -> void:
 	_rattle_cooldown -= dt
+	_contact_cooldown -= dt
 	var gap := rival.s - car.s
 	if car.blind and gap > 8.0 and gap < 40.0 and _rattle_cooldown <= 0.0 and state == State.RACING:
 		_rattle_cooldown = 20.0
@@ -272,6 +275,39 @@ func _on_popup(text: String, color: Color) -> void:
 	hud.show_popup(text, color)
 
 
+var _contact_cooldown := 0.0
+
+
+## Running into the rival from behind: you lose speed and control,
+## and a hard hit gets you disqualified.
+func _contact(excess: float) -> void:
+	if state != State.RACING or _contact_cooldown > 0.0 or excess < 1.5:
+		return
+	_contact_cooldown = 1.0
+	car._crash(excess * 1.5)
+	if excess > 7.0:
+		_lose("YOU RAMMED %s - DISQUALIFIED" % rival.info.name.to_upper())
+	else:
+		hud.show_popup("CONTACT!", Color(1.0, 0.35, 0.2))
+
+
 func _on_crash(impact: float) -> void:
-	if impact > 7.0:
+	if state != State.RACING:
+		return
+	cam.shake(clampf(impact / 12.0, 0.2, 1.0))
+	if mode == Game.Mode.BATTLE and impact > 13.0:
+		_lose("CRASHED OUT")
+		return
+	if mode != Game.Mode.BATTLE:
+		var pen := snappedf(clampf(impact * 0.15, 0.3, 3.0), 0.1)
+		race_time += pen
+		hud.show_popup("CRASH!  +%.1f s" % pen, Color(1.0, 0.35, 0.2))
+	elif impact > 4.0:
 		hud.show_popup("CRASH!", Color(1.0, 0.35, 0.2))
+
+
+func _lose(reason: String) -> void:
+	state = State.FINISHED
+	var lines: Array[String] = [reason, "", "Time  %s" % Game.format_time(race_time), "", "[R] Retry      [Enter] Menu"]
+	hud.set_center("YOU LOSE", Color(1, 0.35, 0.3))
+	hud.show_result("\n".join(lines))

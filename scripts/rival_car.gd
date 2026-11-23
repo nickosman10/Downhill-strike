@@ -16,6 +16,7 @@ var finish_time := 0.0
 var rattled := 0.0      # >0 while spooked by a lights-off chaser
 var _yaw_offset := 0.0
 var _lights := true
+var _power := 4.0
 
 
 func setup(t: Track, rival: Dictionary, start_s: float, start_lat: float) -> void:
@@ -25,7 +26,8 @@ func setup(t: Track, rival: Dictionary, start_s: float, start_lat: float) -> voi
 	add_child(model)
 	var skill: float = rival.get("skill", 1.0)
 	var ph := Cars.physics(rival.get("car", "s13"))
-	profile = track.speed_profile(0.86 * ph.grip * skill, ph.power * 0.8 * skill)
+	_power = ph.power * skill
+	profile = track.speed_profile(1.02 * ph.grip * skill, ph.power * 0.95 * skill)
 	s = start_s
 	lat = start_lat
 	_place(0.0)
@@ -42,7 +44,7 @@ func step(dt: float, race_time: float) -> void:
 		target *= 0.93
 	if finished:
 		target = maxf(0.0, v - 8.0)
-	var accel := 5.0 if target > v else -9.0
+	var accel := clampf(_power / maxf(v, 4.0), 2.0, 6.0) if target > v else -9.0
 	v = move_toward(v, target, absf(accel) * dt)
 	s += v * dt
 	# inside line: look ahead for the next corner
@@ -61,7 +63,8 @@ func _place(dt: float) -> void:
 	var d := track.dir_at(s)
 	var k := track.curvature_at(s)
 	var lateral_g := v * v * absf(k)
-	var drift := clampf((lateral_g - 5.0) / 10.0, 0.0, 0.5) * signf(k)
+	# rivals throw the car sideways through the corners like the locals do
+	var drift := clampf((lateral_g - 3.5) / 8.0, 0.0, 0.62) * signf(k)
 	_yaw_offset = lerpf(_yaw_offset, drift, 1.0 - exp(-4.0 * dt)) if dt > 0.0 else drift
 	var basis := Basis.looking_at(d, Vector3.UP).rotated(Vector3.UP, -_yaw_offset)
 	var ahead := track.point_at(s + 1.2, lat).y
