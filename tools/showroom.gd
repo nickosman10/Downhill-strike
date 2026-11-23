@@ -34,7 +34,7 @@ func _ready() -> void:
 	for id in Cars.ORDER:
 		var m := CarModel.for_car(id)
 		world.add_child(m)
-		m.set_lights(id in ["ae86", "180sx", "fc3s", "fd3s"], true)
+		m.set_lights(true, true)
 		m.update_visual(0.1, 0.0, 0.0, false)
 		cam.global_position = Vector3(-3.4, 1.35, -4.3)
 		cam.look_at(Vector3(0, 0.55, 0), Vector3.UP)

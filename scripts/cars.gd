@@ -10,7 +10,7 @@ extends RefCounted
 ## unlock: beat this car's driver in a downhill battle on its home course
 
 const ROSTER := {
-	"ae85": {"name": "Eight-Five (AE85)", "hp": 83, "kg": 940, "drive": "FR",
+	"ae85": {"name": "Eight-Five (AE85)", "hp": 83, "kg": 940, "drive": "FR", "model": "ae86",
 		"note": "The humble starter. Same body as the Eight-Six, a lot less engine.",
 		"body": {"table": [[0, .60, .62, .74, .66], [0.05, .66, .69, .80, .74], [0.25, .70, .74, .81, .77], [0.7, .75, .80, .81, .77], [1.30, .80, .86, .81, .76], [1.40, .81, .92, .81, .72], [2.05, .84, 1.30, .81, .64], [2.75, .86, 1.31, .81, .63], [3.35, .88, 1.00, .81, .70], [3.50, .89, .94, .81, .74], [4.10, .89, .93, .80, .76], [4.18, .82, .85, .76, .70]],
 		"glass": [1.40, 3.35], "roof": [2.05, 2.75], "side": [1.45, 3.25], "b": [2.45, 2.55], "wb": 2.40, "fo": 0.85, "tire": 0.28, "bumper": "black", "L": 4.18, "W": 1.625, "H": 1.335, "kind": "notch", "lamps": "fixed", "wing": "none", "tail": "bar"},

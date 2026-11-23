@@ -79,6 +79,14 @@ static var _shadow_tex: Texture2D
 ## Build any car from the garage (Cars.ROSTER) by id.
 static func for_car(id: String, override_paint := Color(-1, 0, 0)) -> CarModel:
 	var c: Dictionary = Cars.get_car(id)
+	var glb := "res://cars/%s.glb" % c.get("model", id)
+	if ResourceLoader.exists(glb):
+		var gm := CarModel.new()
+		gm.body_color = c.paint if override_paint.r < 0.0 else override_paint
+		gm.lower_color = c.lower
+		gm._build_glb(load(glb) as PackedScene)
+		gm.scale = Vector3.ONE * 0.92
+		return gm
 	var m := CarModel.new()
 	m.template = "car"
 	m.spec = c.body
@@ -604,6 +612,120 @@ func _build() -> void:
 			wheels.append(pivot)
 			wheel_spin.append(spin)
 			wheel_base_y.append(tr)
+	set_lights(true, true)
+
+
+## High-detail model built in Blender (tools/blender_car.py).
+func _build_glb(scene: PackedScene) -> void:
+	var inst := scene.instantiate()
+	add_child(inst)
+	body = inst
+	var paint := _mat(body_color * Color(0.9, 0.9, 0.9), 0.22, 0.1)
+	paint.clearcoat_enabled = true
+	paint.clearcoat = 0.7
+	paint.rim_enabled = true
+	paint.rim = 0.2
+	var lower := _mat(lower_color, 0.3, 0.15)
+	lower.clearcoat_enabled = true
+	lower.clearcoat = 0.5
+	var glass := _mat(Color(0.05, 0.06, 0.09), 0.04, 0.5)
+	glass.rim_enabled = true
+	glass.rim = 0.7
+	glass.rim_tint = 0.3
+	tail_mat = _mat(Color(0.5, 0.02, 0.02), 0.15)
+	tail_mat.emission_enabled = true
+	tail_mat.emission = Color(1.0, 0.05, 0.03)
+	lens_mat = _mat(Color(1.0, 0.98, 0.9), 0.05)
+	lens_mat.emission_enabled = true
+	lens_mat.emission = Color(1.0, 0.97, 0.88)
+	lens_mat.emission_energy_multiplier = 6.0
+	var amber := _mat(Color(1.0, 0.5, 0.05), 0.15)
+	amber.emission_enabled = true
+	amber.emission = Color(1.0, 0.45, 0.0)
+	amber.emission_energy_multiplier = 0.8
+	var by_name := {"Paint": paint, "Lower": lower, "Glass": glass, "Tail": tail_mat, "Lens": lens_mat, "Amber": amber}
+	var aabb := AABB()
+	var first := true
+	for mi: MeshInstance3D in inst.find_children("*", "MeshInstance3D", true, false):
+		var mesh := mi.mesh
+		for i in mesh.get_surface_count():
+			var sm := mesh.surface_get_material(i)
+			if sm and by_name.has(sm.resource_name):
+				mi.set_surface_override_material(i, by_name[sm.resource_name])
+		if mi.name.begins_with("Body") or mi.get_parent().name.begins_with("Body"):
+			aabb = mi.get_aabb() if first else aabb.merge(mi.get_aabb())
+			first = false
+	var front_z := aabb.position.z
+	var rear_z := aabb.end.z
+	# wheels: pivot (steer + suspension) -> spin -> imported mesh
+	for wn in ["Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR"]:
+		var w := inst.find_child(wn, true, false) as Node3D
+		if w == null:
+			continue
+		var pivot := Node3D.new()
+		pivot.position = w.position
+		add_child(pivot)
+		var spin := Node3D.new()
+		pivot.add_child(spin)
+		w.get_parent().remove_child(w)
+		spin.add_child(w)
+		w.position = Vector3.ZERO
+		wheels.append(pivot)
+		wheel_spin.append(spin)
+		wheel_base_y.append(pivot.position.y)
+	# pop-up lamps: origin on the hinge, they rotate about X
+	var lamp_pos: Array[Vector3] = []
+	for pn in ["Popup_L", "Popup_R"]:
+		var p := inst.find_child(pn, true, false) as Node3D
+		if p:
+			popups.append(p)
+			lamp_pos.append(p.position + Vector3(0, 0.08, -0.12))
+	if lamp_pos.is_empty():
+		for sx in [-1.0, 1.0]:
+			lamp_pos.append(Vector3(sx * 0.55, 0.62, front_z + 0.05))
+		for mi: MeshInstance3D in inst.find_children("*", "MeshInstance3D", true, false):
+			for i in mi.mesh.get_surface_count():
+				var sm := mi.mesh.surface_get_material(i)
+				if sm and sm.resource_name == "Lens":
+					head_glow.append(mi)
+	for lp in lamp_pos:
+		var spot := SpotLight3D.new()
+		spot.position = Vector3(lp.x, 0.8, front_z - 0.1)
+		spot.rotation.x = deg_to_rad(-5.0)
+		spot.spot_range = 75.0
+		spot.spot_angle = 30.0
+		spot.spot_attenuation = 0.7
+		spot.light_energy = 5.0
+		spot.light_color = Color(1.0, 0.96, 0.85)
+		add_child(spot)
+		headlights.append(spot)
+		var fl := _flare(Color(1.0, 0.97, 0.9), 1.4)
+		fl.position = lp + Vector3(0, 0, -0.05)
+		add_child(fl)
+		head_glow.append(fl)
+		var tf := _flare(Color(1.0, 0.1, 0.05), 0.5)
+		tf.position = Vector3(lp.x, 0.72, rear_z + 0.06)
+		add_child(tf)
+		tail_glow.append(tf)
+	var fill := OmniLight3D.new()
+	fill.position = Vector3(0, 2.8, 0.6)
+	fill.omni_range = 5.5
+	fill.light_energy = 0.45
+	fill.light_color = Color(0.85, 0.9, 1.0)
+	add_child(fill)
+	var shadow := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(2.3, absf(rear_z - front_z) + 0.6)
+	q.orientation = PlaneMesh.FACE_Y
+	shadow.mesh = q
+	var shm := StandardMaterial3D.new()
+	shm.albedo_texture = _shadow_texture()
+	shm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	shm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	shm.albedo_color = Color(0, 0, 0, 0.85)
+	shadow.material_override = shm
+	shadow.position = Vector3(0, 0.03, (front_z + rear_z) * 0.5)
+	add_child(shadow)
 	set_lights(true, true)
 
 
