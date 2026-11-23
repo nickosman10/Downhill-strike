@@ -144,11 +144,12 @@ func _ring(z: float) -> PackedVector2Array:
 	var w: float = s[4]
 	var wt: float = s[5]
 	# wheel arches: lift the body bottom over each wheel
-	var wz: float = _shape.wheel_z
-	for c in [-wz, wz]:
+	var tr: float = _shape.get("tire", WHEEL_R)
+	var arch := tr + 0.12
+	for c in _wheel_zs():
 		var dz := absf(z - c)
-		if dz < 0.42:
-			yb = maxf(yb, WHEEL_R + sqrt(0.42 * 0.42 - dz * dz) * 0.92)
+		if dz < arch:
+			yb = maxf(yb, tr + sqrt(arch * arch - dz * dz) * 0.92)
 	yb = minf(yb, ybelt - 0.08)
 	var r := PackedVector2Array()
 	r.append(Vector2(0.0, yb))
@@ -328,7 +329,39 @@ const PROFILES := {
 }
 
 
+func _wheel_zs() -> Array:
+	if _shape.has("wheel_front"):
+		return [_shape.wheel_front, _shape.wheel_rear]
+	return [-float(_shape.wheel_z), float(_shape.wheel_z)]
+
+
 func _make_shape(sp: Dictionary) -> Dictionary:
+	if sp.has("table"):
+		# hand-measured profile: [m from front, belt y, top y, half width, top half width]
+		var tab: Array = sp.table
+		var L: float = tab[tab.size() - 1][0]
+		var st: Array = []
+		for row in tab:
+			st.append([-L * 0.5 + row[0], 0.24, row[1], row[2], row[3], row[4]])
+		var zf := func(x: float) -> float: return -L * 0.5 + x if x < 8.0 else 99.0
+		var fo: float = sp.get("fo", 0.9)
+		return {
+			"stations": st,
+			"glass": [zf.call(sp.glass[0]), zf.call(sp.glass[1])],
+			"roof": [zf.call(sp.roof[0]), zf.call(sp.roof[1])],
+			"side": [zf.call(sp.side[0]), zf.call(sp.side[1])],
+			"b_pillar": [zf.call(sp.b[0]), zf.call(sp.b[1])],
+			"cockpit": [zf.call(sp.cockpit[0]), zf.call(sp.cockpit[1])] if sp.has("cockpit") else [99.0, 99.0],
+			"wheel_z": sp.get("wb", 2.4) * 0.5,
+			"wheel_front": -L * 0.5 + fo,
+			"wheel_rear": -L * 0.5 + fo + sp.get("wb", 2.4),
+			"tire": sp.get("tire", WHEEL_R),
+			"track": tab[2][3] - 0.12,
+			"panda": 0.56 if panda_split else 0.3,
+			"popups": sp.get("lamps", "fixed") == "popup",
+			"popup_z": -L * 0.5 + 0.34,
+			"spoiler": false,
+		}
 	if sp.get("kind", "") == "ae86":
 		var d: Dictionary = SHAPES.hatch.duplicate(true)
 		d.panda = 0.56 if panda_split else 0.3
@@ -400,8 +433,12 @@ func _build() -> void:
 	var rear_s: Array = st_list[st_list.size() - 2]
 
 	# bumpers, plates, lamps
-	_box(Vector3(front_s[4] * 2.0 - 0.02, 0.17, 0.2), Vector3(0, 0.36, front_z + 0.02), black)
-	_box(Vector3(rear_s[4] * 2.0 - 0.02, 0.17, 0.2), Vector3(0, 0.38, rear_z - 0.02), black)
+	var bumper_mat: Material = paint if spec.get("bumper", "black") == "body" else black
+	_box(Vector3(front_s[4] * 2.0 - 0.02, 0.17, 0.2), Vector3(0, 0.36, front_z + 0.02), bumper_mat)
+	_box(Vector3(rear_s[4] * 2.0 - 0.02, 0.17, 0.2), Vector3(0, 0.38, rear_z - 0.02), bumper_mat)
+	if spec.get("bumper", "black") == "body":
+		# dark intake in the front bumper
+		_box(Vector3(front_s[4] * 1.1, 0.08, 0.03), Vector3(0, 0.33, front_z - 0.08), black)
 	_box(Vector3(0.34, 0.12, 0.02), Vector3(0, 0.33, front_z - 0.09), plate)
 	_box(Vector3(0.34, 0.17, 0.02), Vector3(0, 0.58, rear_z + 0.005), plate)
 	for sx in [-1.0, 1.0]:
@@ -533,11 +570,17 @@ func _build() -> void:
 	hub_mesh.bottom_radius = 0.055
 	hub_mesh.height = 0.215
 	hub_mesh.radial_segments = 8
-	var wz: float = _shape.wheel_z
-	for zz in [-wz, wz]:
+	var tr: float = _shape.get("tire", WHEEL_R)
+	tire_mesh.top_radius = tr
+	tire_mesh.bottom_radius = tr
+	tire_mesh.height = 0.2 + (tr - 0.28) * 0.6
+	rim_mesh.top_radius = tr * 0.64
+	rim_mesh.bottom_radius = tr * 0.64
+	var track: float = _shape.get("track", 0.7)
+	for zz in _wheel_zs():
 		for sx in [-1.0, 1.0]:
 			var pivot := Node3D.new()
-			pivot.position = Vector3(sx * 0.7, WHEEL_R, zz)
+			pivot.position = Vector3(sx * track, tr, zz)
 			add_child(pivot)
 			var spin := Node3D.new()
 			pivot.add_child(spin)
@@ -560,7 +603,7 @@ func _build() -> void:
 				holder.add_child(hole)
 			wheels.append(pivot)
 			wheel_spin.append(spin)
-			wheel_base_y.append(WHEEL_R)
+			wheel_base_y.append(tr)
 	set_lights(true, true)
 
 
