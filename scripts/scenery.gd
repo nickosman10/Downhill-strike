@@ -11,6 +11,7 @@ var foliage_mat: ShaderMaterial
 var leaf_mat: ShaderMaterial
 var cedar_mat: ShaderMaterial
 var trunk_mat: StandardMaterial3D
+var caps := PackedVector3Array()   # (x, max terrain height, z) under walls and frames
 var wall_sides := {}      # Vector2i(i, side) -> true where a wall stands
 
 
@@ -32,6 +33,8 @@ func build(track: Track) -> void:
 	_walls()
 	_tunnels()
 	_slope_protection()
+	# keep the mountain behind the walls and frames, then plant on the result
+	t.cap_terrain(caps)
 	_trees()
 	_bushes()
 	_poles()
@@ -258,7 +261,9 @@ func _walls() -> void:
 		for i in range(1, n):
 			var h0 := heights[i - 1]
 			var h1 := heights[i]
-			if h0 < 1.4 and h1 < 1.4:
+			# any rise beside the road gets a retaining wall, so the cut
+			# terrain always ends against concrete
+			if h0 < 0.5 and h1 < 0.5:
 				continue
 			if t.in_tunnel(i):
 				continue
@@ -272,8 +277,20 @@ func _walls() -> void:
 			var u1 := t.S[i] / 3.0
 			var top_a := a + Vector3.UP * maxf(h0, 0.3)
 			var top_b := b + Vector3.UP * maxf(h1, 0.3)
+			# the hillside stays under the wall top right behind the wall,
+			# then may climb away from it like a real cut slope
+			for l: float in [0.9, 1.3, 2.0, 3.0, 4.2]:
+				var cp: Vector3 = t.P[i] + t.R[i] * side * (t.rail + l)
+				caps.append(Vector3(cp.x, top_b.y - 0.25 + maxf(0.0, l - 1.3) * 0.9, cp.z))
 			var bot_a := a + Vector3.DOWN * 0.8
 			var bot_b := b + Vector3.DOWN * 0.8
+			# concrete side ditch along the wall foot, from the road edge to the wall
+			var ea := t.P[i - 1] + t.R[i - 1] * side * (t.rail - 0.05) + Vector3.DOWN * 0.03
+			var eb := t.P[i] + t.R[i] * side * (t.rail - 0.05) + Vector3.DOWN * 0.03
+			var fa := a + Vector3.DOWN * 0.03
+			var fb := b + Vector3.DOWN * 0.03
+			wst.set_normal(Vector3.UP)
+			_quad(wst, ea, eb, fb, fa, Vector2(u0, 0.0), Vector2(u1, 0.3), side)
 			var nrm: Vector3 = -t.R[i] * side
 			wst.set_normal(nrm)
 			_quad(wst, bot_a, bot_b, top_b, top_a, Vector2(u0, (h0 + 0.8) / 3.0), Vector2(u1, (h1 + 0.8) / 3.0), side)
@@ -1078,7 +1095,9 @@ func _slope_protection() -> void:
 	fence_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var post_xf: Array = []
 	var n := t.P.size()
-	var lats := [1.3, 4.0, 7.0, 10.5, 14.5, 19.0, 24.0]
+	# the first row is the foot: on the wall line, down at road level, so the
+	# frame meets the road edge and no bare hillside shows underneath it
+	var lats := [0.9, 1.6, 4.0, 7.0, 10.5, 14.5, 19.0, 24.0]
 	for side: float in [-1.0, 1.0]:
 		var prev: Array = []
 		var prev_ok := false
@@ -1091,7 +1110,11 @@ func _slope_protection() -> void:
 				for l in lats:
 					var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + l)
 					var hy := t.terrain_height(p.x, p.z)
-					p.y = maxf(hy, t.P[i].y + 0.2) + 0.5
+					if l < 1.0:
+						p.y = t.P[i].y - 0.05
+					else:
+						p.y = maxf(hy, t.P[i].y + 0.2) + 0.5
+					caps.append(Vector3(p.x, p.y - 0.45, p.z))
 					row.append(p)
 			if ok and not prev_ok:
 				run_kind = int(t.S[i] / 90.0) % 2

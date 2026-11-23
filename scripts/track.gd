@@ -823,6 +823,8 @@ func _build_terrain() -> void:
 			mat.set_shader_parameter("use_aerial", 1.0)
 	terrain_h = _load_grid(terrain_info)
 	_carve_corridor()
+	_corridor_mask(mat)
+	_terrain_mat = mat
 	_grid_mesh(terrain_info, terrain_h, mat, Rect2())
 	if not far_info.is_empty():
 		# real mountains and valleys out to the horizon, with a hole where the
@@ -879,6 +881,79 @@ func _carve_corridor() -> void:
 					continue
 				var k := gj * nx + gi
 				terrain_h[k] = minf(terrain_h[k], p.y - 0.35)
+
+
+## Exact road corridor for the terrain shader: a height map (1 m pixels) that
+## holds the road surface height across the road, gutters and verge up to the
+## wall line. Terrain above that height inside the corridor is not drawn, so
+## the mountain can never show on the road or in front of a wall. Tunnels are
+## left out so the mountain over them stays whole.
+func _corridor_mask(mat: ShaderMaterial) -> void:
+	var ox: float = terrain_info.origin[0]
+	var oz: float = terrain_info.origin[1]
+	var cell: float = terrain_info.cell
+	var w := int((terrain_info.nx - 1) * cell)
+	var h := int((terrain_info.nz - 1) * cell)
+	var data := PackedFloat32Array()
+	data.resize(w * h)
+	data.fill(1.0e6)
+	var half := rail + 0.88      # right up to the wall line
+	for i in range(0, P.size() - 1):
+		if in_tunnel(i) or in_tunnel(i + 1):
+			continue
+		var seg := S[i + 1] - S[i]
+		var steps := maxi(1, int(ceil(seg / 0.4)))
+		for k in steps + 1:
+			var f := float(k) / steps
+			var c := P[i].lerp(P[i + 1], f)
+			var r := R[i].lerp(R[i + 1], f).normalized()
+			var l := -half
+			while l <= half:
+				var q := c + r * l
+				var px := int(q.x - ox)
+				var pz := int(q.z - oz)
+				if px >= 0 and pz >= 0 and px < w and pz < h:
+					var idx := pz * w + px
+					var top := c.y - 0.12   # nothing of the hillside above the road edge or ditch
+					data[idx] = top if data[idx] > 1.0e5 else maxf(data[idx], top)
+				l += 0.4
+	var img := Image.create_from_data(w, h, false, Image.FORMAT_RF, data.to_byte_array())
+	mat.set_shader_parameter("corridor", ImageTexture.create_from_image(img))
+	mat.set_shader_parameter("corridor_origin", Vector2(ox, oz))
+	mat.set_shader_parameter("corridor_size", Vector2(w, h))
+	mat.set_shader_parameter("use_corridor", 1.0)
+
+
+var _terrain_nodes: Array[Node] = []
+var _terrain_mat: Material
+
+
+## Lower the hillside under walls and slope frames: each cap (x, z, max height)
+## pulls down the four terrain vertices of the cell it falls in, so the drawn
+## surface at that spot can't rise above it. Rebuilds the near terrain mesh.
+func cap_terrain(caps: PackedVector3Array) -> void:
+	if terrain_h.is_empty() or caps.is_empty():
+		return
+	var nx: int = terrain_info.nx
+	var nz: int = terrain_info.nz
+	var cell: float = terrain_info.cell
+	var ox: float = terrain_info.origin[0]
+	var oz: float = terrain_info.origin[1]
+	for c in caps:
+		var i := int(floor((c.x - ox) / cell))
+		var j := int(floor((c.z - oz) / cell))
+		for dj in 2:
+			for di in 2:
+				var gi := i + di
+				var gj := j + dj
+				if gi < 0 or gj < 0 or gi >= nx or gj >= nz:
+					continue
+				var k := gj * nx + gi
+				terrain_h[k] = minf(terrain_h[k], c.y)
+	for n in _terrain_nodes:
+		n.queue_free()
+	_terrain_nodes.clear()
+	_grid_mesh(terrain_info, terrain_h, _terrain_mat, Rect2())
 
 
 func _load_grid(info: Dictionary) -> PackedFloat32Array:
@@ -942,6 +1017,8 @@ func _grid_mesh(info: Dictionary, h: PackedFloat32Array, mat: Material, hole: Re
 			mi.mesh = mesh
 			mi.material_override = mat
 			add_child(mi)
+			if not hole.has_area():
+				_terrain_nodes.append(mi)
 
 
 func _cone(st: SurfaceTool, base: Vector3, r: float, height: float, col: Color, sides := 7) -> void:

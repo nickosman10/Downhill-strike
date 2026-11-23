@@ -17,6 +17,11 @@ uniform sampler2D ground_tex : source_color, filter_linear_mipmap_anisotropic, r
 uniform sampler2D rock_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 // tree crowns: forested slopes read as a blanket of canopy, like the real hills
 uniform sampler2D canopy_tex : filter_linear_mipmap_anisotropic, repeat_enable;
+// road corridor: terrain above the road surface inside it is cut away
+uniform sampler2D corridor : filter_nearest, repeat_disable;
+uniform vec2 corridor_origin = vec2(0.0);
+uniform vec2 corridor_size = vec2(1.0);
+uniform float use_corridor = 0.0;
 
 varying vec3 wpos;
 varying vec3 wnorm;
@@ -36,6 +41,12 @@ void vertex() {
 }
 
 void fragment() {
+	if (use_corridor > 0.5) {
+		vec2 cuv = (wpos.xz - corridor_origin) / corridor_size;
+		if (cuv.x > 0.0 && cuv.y > 0.0 && cuv.x < 1.0 && cuv.y < 1.0 && wpos.y > texture(corridor, cuv).r) {
+			discard;
+		}
+	}
 	vec3 n = normalize(wnorm);
 	float slope = 1.0 - n.y;
 	float nz = vnoise(wpos.xz * 0.15) * 0.6 + vnoise(wpos.xz * 0.9) * 0.4;
