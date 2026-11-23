@@ -378,13 +378,16 @@ func _walls() -> void:
 			var bot_a := a + Vector3.DOWN * 0.8
 			var bot_b := b + Vector3.DOWN * 0.8
 			# concrete side ditch along the wall foot, from the road edge to the wall
-			var ea := t.P[i - 1] + t.R[i - 1] * side * (t.rail - 0.05) + Vector3.DOWN * 0.03
-			var eb := t.P[i] + t.R[i] * side * (t.rail - 0.05) + Vector3.DOWN * 0.03
-			var fa := a + Vector3.DOWN * 0.03
-			var fb := b + Vector3.DOWN * 0.03
+			# starts exactly at the road mesh's outer edge and sits 1.5 cm above its
+			# edge strip, so the two surfaces never share a height (no flicker)
+			var e_lat := t.hw + Track.GUTTER_W        # outer edge of the concrete gutter
+			var ea := t.P[i - 1] + t.R[i - 1] * side * e_lat + Vector3.DOWN * 0.005
+			var eb := t.P[i] + t.R[i] * side * e_lat + Vector3.DOWN * 0.005
+			var fa := a + Vector3.DOWN * 0.005
+			var fb := b + Vector3.DOWN * 0.005
 			# the road surface carries on to the wall foot (asphalt, same tiling as the road)
 			sst.set_normal(Vector3.UP)
-			var r0 := (t.rail - 0.05) / 6.0
+			var r0 := (t.hw + Track.GUTTER_W) / 6.0
 			var r1 := (t.rail + 0.9) / 6.0
 			for tri in [[ea, Vector2(r0, t.S[i - 1] / 6.0)], [eb, Vector2(r0, t.S[i] / 6.0)], [fb, Vector2(r1, t.S[i] / 6.0)],
 					[ea, Vector2(r0, t.S[i - 1] / 6.0)], [fb, Vector2(r1, t.S[i] / 6.0)], [fa, Vector2(r1, t.S[i - 1] / 6.0)]]:
@@ -1107,7 +1110,7 @@ func _curbs() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# section across the curb (lateral offset from the rail line, height)
-	var prof := [[-0.08, -0.03], [-0.05, 0.16], [0.0, 0.19], [0.22, 0.19], [0.26, -0.05]]
+	var prof := [[-0.06, -0.06], [-0.05, 0.16], [0.0, 0.19], [0.22, 0.19], [0.26, -0.08]]
 	var n := t.P.size()
 	for side: float in [-1.0, 1.0]:
 		for i in range(1, n):

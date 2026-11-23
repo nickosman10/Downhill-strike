@@ -136,6 +136,7 @@ func _shot(spec: Array) -> void:
 	var cam := Camera3D.new()
 	race.add_child(cam)
 	cam.far = 20000.0
+	cam.near = 0.3
 	var b := car.global_transform.basis
 	var p := car.global_position
 	var fwd := -b.z
@@ -206,6 +207,7 @@ func _curb_shot() -> void:
 	var cam := Camera3D.new()
 	race.add_child(cam)
 	cam.far = 20000.0
+	cam.near = 0.3
 	var p: Vector3 = tr.P[pick]
 	cam.global_position = p - tr.D[pick] * 7.0 - tr.R[pick] * pick_side * 1.5 + Vector3.UP * 1.4
 	cam.look_at(tr.P[mini(pick + 14, tr.P.size() - 1)] + tr.R[pick] * pick_side * (tr.rail + 1.0) + Vector3.UP * 0.6, Vector3.UP)

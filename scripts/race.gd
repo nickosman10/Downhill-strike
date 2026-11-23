@@ -52,6 +52,7 @@ func _ready() -> void:
 	cam = ChaseCamera.new()
 	cam.car = car
 	cam.far = 20000.0
+	cam.near = 0.3          # better depth precision: no flicker between close surfaces
 	add_child(cam)
 	cam.current = true
 	cam.snap()
