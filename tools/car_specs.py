@@ -480,3 +480,94 @@ SPECS["ae85"] = _mk(SPECS["ae86"], popup=None, rim_style=("dish", 4), rim=(0.6, 
         ["headlamp", "F", 0.42, 0.73, 0.595, 0.655, "Lens"],
         ["slats", "F", 0.0, 0.38, 0.598, 0.65, "Well", {"n": 3, "proud": 0.006}],
     ] + SPECS["ae86"]["front"][3:])
+
+
+# ---------------------------------------------------------------------------
+# Liveries and body kits. Paint schemes follow each car's colours in the story
+# (two-tone where the car is two-tone); every sticker, team name and graphic is
+# an original design.
+W, K, R, Y_, G = (0.96, 0.96, 0.95), (0.03, 0.03, 0.035), (0.82, 0.05, 0.05), (0.98, 0.8, 0.1), (0.8, 0.66, 0.25)
+
+SPECS["ae85"].update(paint=(0.72, 0.06, 0.07), lower=(0.03, 0.03, 0.035), decals=[
+    ("rect", "S", -1.6, 1.6, -0.006, 0.006, 2.1, 0.625, G),
+])
+
+SPECS["s13"].update(decals=[
+    ("banner", "TOUGE SPEED CLUB", K, W),
+    ("text", "S", "TOUGE SPEED CLUB", 2.15, 0.62, 0.075, K, "italic"),
+    ("rect", "S", -1.25, 1.25, -0.012, 0.012, 2.15, 0.56, K),
+    ("text", "B", "TSC", -0.55, 0.88, 0.07, K, "bold"),
+])
+
+SPECS["180sx"].update(decals=[
+    ("banner", "SLIDE WORKS", (0.35, 0.1, 0.55), W),
+    ("rect", "S", -0.75, 0.75, -0.035, 0.035, 3.35, 0.735, (0.4, 0.12, 0.6), -0.12),
+    ("rect", "S", -0.6, 0.6, -0.012, 0.012, 3.4, 0.69, (0.4, 0.12, 0.6), -0.05),
+    ("text", "S", "SLIDE WORKS", 2.25, 0.60, 0.095, (0.4, 0.12, 0.6), "italic"),
+], kit={"lip": True})
+
+SPECS["sil80"].update(panda=0.50, decals=[
+    ("banner", "ROUTE 18 GARAGE", W, (0.1, 0.25, 0.7)),
+    ("rect", "S", -1.4, 1.4, -0.01, 0.01, 2.2, 0.53, W),
+    ("text", "S", "R18", 3.55, 0.70, 0.09, W, "italic"),
+    ("text", "S", "ROUTE 18 GARAGE", 2.2, 0.64, 0.06, W, "bold"),
+], kit={"lip": True})
+
+SPECS["eg6"].update(decals=[
+    ("banner", "NIGHT CHARGERS", K, R),
+    ("text", "S", "NIGHT CHARGERS", 1.75, 0.60, 0.085, K, "italic"),
+    ("rect", "S", -1.5, 1.5, -0.035, 0.035, 2.0, 0.44, K),
+    ("rect", "S", -1.5, 1.5, -0.008, 0.008, 2.0, 0.49, W),
+], kit={"tow": (0.42, 0.40)})
+
+SPECS["r32"].update(decals=[
+    ("banner", "THUNDERHEAD", K, G),
+    ("text", "S", "THUNDERHEAD", 2.2, 0.60, 0.09, G, "italic"),
+    ("rect", "S", -1.4, 1.4, -0.006, 0.006, 2.2, 0.68, G),
+    ("text", "S", "32", 3.65, 0.62, 0.11, G, "bold"),
+], kit={"lip": True, "skirts": True})
+
+SPECS["fc3s"].update(decals=[
+    ("banner", "ROTARY LAB", K, W),
+    ("text", "S", "ROTARY LAB", 2.3, 0.58, 0.07, (0.75, 0.05, 0.06), "italic"),
+    ("rect", "S", -1.5, 1.5, -0.005, 0.005, 2.2, 0.66, (0.75, 0.05, 0.06)),
+    ("rect", "S", -0.2, 0.2, -0.004, 0.004, 3.7, 0.50, K),
+], kit={"lip": True})
+
+SPECS["fd3s"].update(decals=[
+    ("banner", "ROTARY LAB", K, Y_),
+    ("text", "S", "ROTARY LAB", 2.25, 0.56, 0.075, K, "italic"),
+    ("rect", "S", -0.5, 0.5, -0.06, 0.06, 3.55, 0.56, K, -0.18),
+    ("text", "B", "13B", 0.0, 0.84, 0.06, K, "bold"),
+], kit={"lip": True})
+
+SPECS["evo3"].update(decals=[
+    ("banner", "MOUNTAIN RALLY", R, W),
+    ("rect", "S", -1.7, 1.7, -0.05, 0.05, 2.1, 0.40, R),
+    ("rect", "S", -1.7, 1.7, -0.012, 0.012, 2.1, 0.47, K),
+    ("rect", "S", -0.17, 0.17, -0.12, 0.12, 2.0, 0.62, W),
+    ("text", "S", "07", 2.0, 0.62, 0.17, K, "bold"),
+    ("text", "S", "MOUNTAIN RALLY", 3.25, 0.70, 0.05, K, "bold"),
+    ("text", "T", "MR", 0.0, 0.55, 0.16, R, "italic"),
+], kit={"lip": True, "skirts": True, "tow": (0.38, 0.38)})
+
+SPECS["ek9"].update(decals=[
+    ("banner", "GRIP ATTACK", K, R),
+    ("text", "S", "GRIP ATTACK", 1.85, 0.58, 0.075, R, "italic"),
+    ("rect", "S", -1.55, 1.55, -0.018, 0.018, 2.1, 0.43, R),
+    ("text", "B", "8500rpm", 0.5, 0.95, 0.045, K, "bold"),
+], kit={"tow": (0.40, 0.40)})
+
+SPECS["s2000"].update(decals=[
+    ("rect", "T", -0.05, 0.05, 0.05, 1.72, 0.13, 0.0, (0.35, 0.36, 0.4)),
+    ("rect", "T", -0.05, 0.05, 0.05, 1.72, -0.13, 0.0, (0.35, 0.36, 0.4)),
+    ("rect", "T", -0.05, 0.05, 3.3, 4.0, 0.13, 0.0, (0.35, 0.36, 0.4)),
+    ("rect", "T", -0.05, 0.05, 3.3, 4.0, -0.13, 0.0, (0.35, 0.36, 0.4)),
+    ("text", "S", "9000", 3.45, 0.62, 0.08, (0.35, 0.36, 0.4), "italic"),
+], kit={"lip": True})
+
+SPECS["r34"].update(decals=[
+    ("banner", "PURPLE STORM", K, (0.8, 0.8, 0.85)),
+    ("rect", "S", -0.9, 0.9, -0.07, 0.07, 2.6, 0.48, (0.75, 0.75, 0.8), -0.2),
+    ("text", "S", "PURPLE STORM", 2.3, 0.66, 0.08, (0.85, 0.85, 0.9), "italic"),
+], kit={"lip": True, "skirts": True})

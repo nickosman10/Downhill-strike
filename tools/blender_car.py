@@ -33,6 +33,12 @@ from car_specs import SPECS  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JP_FONT = "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
+FONTS = {
+    "jp": JP_FONT,
+    "bold": "/usr/share/fonts/opentype/inter/Inter-ExtraBold.otf",
+    "italic": "/usr/share/fonts/opentype/inter/Inter-ExtraBold.otf",
+    "serif": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+}
 
 
 # ------------------------------------------------------------------ helpers
@@ -647,6 +653,9 @@ class Car:
         if side in (1, -1):
             fn = lambda uv: (side * 2.0, self.Y(uv[0]), uv[1])
             dirv = (-side, 0, 0)
+        elif side == "T":
+            fn = lambda uv: (uv[0], self.Y(uv[1]), 3.0)
+            dirv = (0, 0, -1)
         elif side == "F":
             fn = lambda uv: (uv[0], self.L, uv[1])
             dirv = (0, -1, 0)
@@ -688,6 +697,157 @@ class Car:
         ob = self.decal("Livery", tree, uv, faces, fn, (-side, 0, 0), mat_name, 0.0035)
         self.parts.append(ob)
         return ob
+
+    # ---------------------------------------------------------- liveries
+    def color_mat(self, rgb, rough=0.35):
+        name = "Decal_%02x%02x%02x" % tuple(int(c * 255) for c in rgb)
+        if name not in self.M:
+            self.M[name] = mat(name, rgb, rough, 0.0)
+        return name
+
+    def text_mesh(self, text, size, font):
+        cu = bpy.data.curves.new("txt", "FONT")
+        cu.body = text
+        cu.font = bpy.data.fonts.load(FONTS.get(font, font), check_existing=True)
+        cu.size = size
+        cu.align_x = "CENTER"
+        cu.align_y = "CENTER"
+        cu.resolution_u = 4
+        if font == "italic":
+            cu.shear = 0.25
+        tob = bpy.data.objects.new("txt", cu)
+        bpy.context.scene.collection.objects.link(tob)
+        dg = bpy.context.evaluated_depsgraph_get()
+        me = bpy.data.meshes.new_from_object(tob.evaluated_get(dg))
+        bpy.data.objects.remove(tob)
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bmesh.ops.triangulate(bm, faces=bm.faces[:])
+        uv = [(v.co.x, v.co.y) for v in bm.verts]
+        faces = [[v.index for v in f.verts] for f in bm.faces]
+        bm.free()
+        bpy.data.meshes.remove(me)
+        return uv, faces
+
+    def face_fn(self, face, a, b):
+        """Map flat 2D design coords (u right, v up as seen from outside) onto a face."""
+        if face == 1:
+            return (lambda p: (2.0, self.Y(a) + p[0], b + p[1])), (-1, 0, 0)
+        if face == -1:
+            return (lambda p: (-2.0, self.Y(a) - p[0], b + p[1])), (1, 0, 0)
+        if face == "T":     # read from in front of the car, "up" = towards the windscreen
+            return (lambda p: (a - p[0], self.Y(b + p[1]), 3.0)), (0, 0, -1)
+        if face == "B":
+            return (lambda p: (a + p[0], -self.L, b + p[1])), (0, 1, 0)
+        return (lambda p: (a - p[0], self.L, b + p[1])), (0, -1, 0)
+
+    def put(self, tree, name, uv, faces, face, a, b, matn, offset):
+        fn, dirv = self.face_fn(face, a, b)
+        ob = self.decal(name, tree, uv, faces, fn, dirv, matn, offset)
+        self.parts.append(ob)
+
+    @staticmethod
+    def grid(u0, u1, v0, v1, nu=12, nv=3, skew=0.0):
+        uv = [(lerp(u0, u1, i / nu) + skew * (j / nv), lerp(v0, v1, j / nv)) for j in range(nv + 1) for i in range(nu + 1)]
+        faces = [(j * (nu + 1) + i, j * (nu + 1) + i + 1, (j + 1) * (nu + 1) + i + 1, (j + 1) * (nu + 1) + i)
+                 for j in range(nv) for i in range(nu)]
+        return uv, faces
+
+    def liveries(self, tree):
+        """Stickers and graphics, all original designs:
+        ("text", face, text, a, b, size, rgb, font)   face 1/-1/"S"(both sides)/"T"/"B"/"F"
+        ("rect", face, u0, u1, v0, v1, a, b, rgb[, skew])  rectangle/slash in design coords
+        ("disc", face, a, b, r, rgb)
+        ("banner", text, band_rgb, text_rgb)     windscreen sun strip
+        ("hood", rgb)                            painted / carbon hood
+        """
+        s = self.s
+        lay = 0.0
+        for item in s.get("decals", []):
+            kind = item[0]
+            lay += 0.0004                      # later stickers sit on top of earlier ones
+            if kind == "banner":
+                _, text, band, ink = item
+                r0 = s["roof"][0]
+                d1, d0 = r0 - 0.04, r0 - 0.17
+                rw = self.st(r0)[5] - 0.12
+                uv, f = self.grid(-rw, rw, d0, d1, 16, 3)
+                fn = lambda p: (p[0], self.Y(p[1]), 3.0)
+                self.parts.append(self.decal("banner", tree, uv, f, fn, (0, 0, -1), self.color_mat(band), 0.003))
+                tuv, tf = self.text_mesh(text, 0.085, "bold")
+                self.put(tree, "bannertxt", tuv, tf, "T", 0.0, (d0 + d1) / 2 - 0.02, self.color_mat(ink), 0.0045)
+                continue
+            if kind == "hood":
+                g0 = s["glass"][0]
+                w = self.st(g0 * 0.5)[4] - 0.1
+                uv, f = self.grid(-w, w, 0.06, g0 - 0.06, 16, 12)
+                fn = lambda p: (p[0], self.Y(p[1]), 3.0)
+                self.parts.append(self.decal("hood", tree, uv, f, fn, (0, 0, -1), self.color_mat(item[1], 0.5), 0.0025 + lay))
+                continue
+            faces_ = (1, -1) if item[1] == "S" else (item[1],)
+            for face in faces_:
+                if kind == "text":
+                    _, _, text, a, b, size, rgb, font = item
+                    tuv, tf = self.text_mesh(text, size, font)
+                    self.put(tree, "txt", tuv, tf, face, a, b, self.color_mat(rgb), 0.0035 + lay)
+                elif kind == "rect":
+                    _, _, u0, u1, v0, v1, a, b, rgb = item[:9]
+                    skew = item[9] if len(item) > 9 else 0.0
+                    uv, f = self.grid(u0, u1, v0, v1, 16, 3, skew)
+                    self.put(tree, "rect", uv, f, face, a, b, self.color_mat(rgb), 0.003 + lay)
+                elif kind == "disc":
+                    _, _, a, b, r, rgb = item
+                    n = 24
+                    uv = [(0.0, 0.0)] + [(r * math.cos(math.tau * k / n), r * math.sin(math.tau * k / n)) for k in range(n)]
+                    f = [(0, 1 + k, 1 + (k + 1) % n) for k in range(n)]
+                    self.put(tree, "disc", uv, f, face, a, b, self.color_mat(rgb), 0.003 + lay)
+
+    def body_kit(self, tree):
+        s = self.s
+        kit = s.get("kit", {})
+        if not kit:
+            return
+        bm = bmesh.new()
+        # front lip: thin splitter just under the bumper
+        if kit.get("lip"):
+            z = s["bumper_f"][0] if s.get("bumper_f") else 0.28
+            path = []
+            for k in range(17):
+                x = lerp(-0.72, 0.72, k / 16)
+                hit, n = self.project(tree, (x, self.L, z + 0.03), (0, -1, 0))
+                if hit:
+                    path.append(Vector((x, hit.y + 0.02, z - 0.005)))
+            if len(path) > 2:
+                sweep(bm, path, [(0.0, -0.01), (0.05, -0.012), (0.05, 0.0), (0.0, 0.006)], normals=[Vector((0, 0, 1))] * len(path))
+        # side skirts between the arches
+        if kit.get("skirts"):
+            d0 = self.wheel_d[0] + self.tire_r + 0.08
+            d1 = self.wheel_d[1] - self.tire_r - 0.08
+            for sx in (-1, 1):
+                path = []
+                for k in range(9):
+                    d = lerp(d0, d1, k / 8)
+                    bot = self.st(d)[0]
+                    x = self.surface_x(d, bot + 0.06)
+                    path.append(Vector((sx * x, self.Y(d), bot + 0.01)))
+                prof = [(0.0, -0.03), (0.035, -0.03), (0.03, 0.05), (0.0, 0.07)]
+                if sx < 0:
+                    prof = [(-u, v) for u, v in reversed(prof)]
+                sweep(bm, path, prof, normals=[Vector((0, 0, 1))] * len(path))
+        if bm.faces:
+            ob = new_obj("kit", bm, [self.M["Trim"]])
+            flip_outward_obj(ob)
+            shade(ob, 40)
+            self.parts.append(ob)
+        # red tow hook strap on the front bumper
+        if kit.get("tow"):
+            x, z = kit["tow"]
+            hit, n = self.project(tree, (x, self.L, z), (0, -1, 0))
+            if hit:
+                bm = bmesh.new()
+                box_bm(bm, hit + Vector((0, 0.02, -0.03)), (0.03, 0.008, 0.11), 0)
+                ob = new_obj("tow", bm, [self.M[self.color_mat((0.85, 0.05, 0.05))]])
+                self.parts.append(ob)
 
     # ---------------------------------------------------------- details
     def build_details(self):
@@ -774,6 +934,8 @@ class Car:
             if lv:
                 for (txt, d, z, size) in lv:
                     self.text_decal(tree, txt, sx, d, z, size)
+        self.liveries(tree)
+        self.body_kit(tree)
         # ---- plates
         pf = s.get("plate_f")
         if pf:
