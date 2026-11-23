@@ -77,6 +77,7 @@ var _brake_down_at := -10.0
 var _brake_up_at := -10.0
 var _was_braking := false
 var _idle_time := 0.0
+var _stuck_time := 0.0
 var _clock := 0.0
 var _exit_timer := 0.0
 var _prev_vel := Vector2.ZERO
@@ -183,7 +184,7 @@ func physics_step(dt: float) -> void:
 		gutter_time = 0.0
 
 	# --- drift entry: only on purpose (no surprise slides)
-	var braking_now := brake > 0.5
+	var braking_now := brake > 0.85
 	if braking_now and not _was_braking:
 		_brake_down_at = _clock
 	if not braking_now and _was_braking:
@@ -196,7 +197,7 @@ func physics_step(dt: float) -> void:
 		else:
 			# brake tap: a short stab of brake, then turn in hard
 			var tapped := _brake_up_at - _brake_down_at < 0.4 and _clock - _brake_up_at < 0.55
-			if tapped and absf(target_steer) > 0.6 and speed > 13.0:
+			if tapped and absf(target_steer) > 0.8 and speed > 13.0:
 				_start_drift(signf(target_steer))
 
 	# --- yaw
@@ -309,10 +310,27 @@ func physics_step(dt: float) -> void:
 			vel -= n2 * v_out * 1.25
 			vel *= 1.0 - clampf(v_out * 0.02, 0.0, 0.25)
 			yaw_rate *= 0.5
+			# glance off: turn the nose back along the road instead of sticking
+			var road_yaw := atan2(proj.dir.z, proj.dir.x)
+			if vel.dot(Vector2(proj.dir.x, proj.dir.z)) < 0.0:
+				road_yaw += PI
+			yaw = lerp_angle(yaw, road_yaw, clampf(v_out * 0.06, 0.1, 0.45))
+			if drifting:
+				drifting = false
+				_drift_exit = false
 			if v_out > 2.0:
 				_crash(v_out)
 		vel *= 1.0 - 0.5 * dt   # scraping along the rail
 	pos.y = track.surface_height(proj)
+	var road_dir: Vector3 = proj.dir
+	var road_ang := atan2(road_dir.z, road_dir.x)
+	var off_road_ang := absf(wrapf(yaw - road_ang, -PI, PI))
+	if control_enabled and speed < 2.0 and throttle > 0.5 and off_road_ang > 0.9 and off_road_ang < 2.4:
+		_stuck_time += dt
+		if _stuck_time > 0.8:
+			yaw = rotate_toward(yaw, road_ang, 1.6 * dt)
+	else:
+		_stuck_time = 0.0
 
 	# --- engine
 	var wheel_rpm := speed / (TAU * CarModel.WHEEL_R) * 60.0
@@ -336,7 +354,7 @@ func physics_step(dt: float) -> void:
 
 
 func _detect_inertia_drift(target_steer: float) -> void:
-	if absf(target_steer) < 0.7:
+	if absf(target_steer) < 0.95:
 		return
 	var sg := signf(target_steer)
 	if _steer_hist.is_empty() or _steer_hist[-1][1] != sg:
@@ -345,7 +363,7 @@ func _detect_inertia_drift(target_steer: float) -> void:
 			_steer_hist.pop_front()
 		if _steer_hist.size() >= 2:
 			var prev: Array = _steer_hist[-2]
-			if _clock - prev[0] < 0.45 and prev[1] == -sg and speed > 15.0 and not drifting:
+			if _clock - prev[0] < 0.3 and prev[1] == -sg and speed > 18.0 and not drifting:
 				_start_drift(sg)
 				_award("INERTIA DRIFT", 250, Color(1.0, 0.8, 0.2))
 
