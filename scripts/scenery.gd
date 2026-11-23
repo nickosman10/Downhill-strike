@@ -243,6 +243,15 @@ func _walls() -> void:
 	fence_mat.uv1_scale = Vector3(1, 1, 1)
 	var wst := SurfaceTool.new()
 	wst.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var sst := SurfaceTool.new()       # asphalt shoulder between the road edge and the wall
+	sst.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var shoulder := _mat(Color(0.62, 0.63, 0.68), 1.0)
+	shoulder.albedo_texture = load("res://assets/textures/asphalt_albedo.png")
+	shoulder.normal_enabled = true
+	shoulder.normal_texture = load("res://assets/textures/asphalt_normal.png")
+	shoulder.roughness_texture = load("res://assets/textures/asphalt_rough.png")
+	shoulder.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	shoulder.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var fst := SurfaceTool.new()
 	fst.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := t.P.size()
@@ -289,8 +298,14 @@ func _walls() -> void:
 			var eb := t.P[i] + t.R[i] * side * (t.rail - 0.05) + Vector3.DOWN * 0.03
 			var fa := a + Vector3.DOWN * 0.03
 			var fb := b + Vector3.DOWN * 0.03
-			wst.set_normal(Vector3.UP)
-			_quad(wst, ea, eb, fb, fa, Vector2(u0, 0.0), Vector2(u1, 0.3), side)
+			# the road surface carries on to the wall foot (asphalt, same tiling as the road)
+			sst.set_normal(Vector3.UP)
+			var r0 := (t.rail - 0.05) / 6.0
+			var r1 := (t.rail + 0.9) / 6.0
+			for tri in [[ea, Vector2(r0, t.S[i - 1] / 6.0)], [eb, Vector2(r0, t.S[i] / 6.0)], [fb, Vector2(r1, t.S[i] / 6.0)],
+					[ea, Vector2(r0, t.S[i - 1] / 6.0)], [fb, Vector2(r1, t.S[i] / 6.0)], [fa, Vector2(r1, t.S[i - 1] / 6.0)]]:
+				sst.set_uv(tri[1])
+				sst.add_vertex(tri[0])
 			var nrm: Vector3 = -t.R[i] * side
 			wst.set_normal(nrm)
 			_quad(wst, bot_a, bot_b, top_b, top_a, Vector2(u0, (h0 + 0.8) / 3.0), Vector2(u1, (h1 + 0.8) / 3.0), side)
@@ -304,6 +319,10 @@ func _walls() -> void:
 				_quad(fst, top_a, top_b, top_b + Vector3.UP * 1.6, top_a + Vector3.UP * 1.6, Vector2(u0 * 2.0, 1), Vector2(u1 * 2.0, 1), side)
 	wst.set_material(concrete)
 	fst.set_material(fence_mat)
+	sst.set_material(shoulder)
+	var sm := MeshInstance3D.new()
+	sm.mesh = sst.commit()
+	_add(sm)
 	var wm := MeshInstance3D.new()
 	wm.mesh = wst.commit()
 	_add(wm)
