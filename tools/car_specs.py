@@ -488,7 +488,7 @@ SPECS["ae85"] = _mk(SPECS["ae86"], popup=None, rim_style=("dish", 4), rim=(0.6, 
 # an original design.
 W, K, R, Y_, G = (0.96, 0.96, 0.95), (0.03, 0.03, 0.035), (0.82, 0.05, 0.05), (0.98, 0.8, 0.1), (0.8, 0.66, 0.25)
 
-SPECS["ae85"].update(paint=(0.72, 0.06, 0.07), lower=(0.03, 0.03, 0.035), decals=[
+SPECS["ae85"].update(paint=(0.72, 0.06, 0.07), lower=(0.03, 0.03, 0.035), livery=None, decals=[
     ("rect", "S", -1.6, 1.6, -0.006, 0.006, 2.1, 0.625, G),
 ])
 
