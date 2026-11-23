@@ -54,7 +54,7 @@ class Minimap extends Control:
 			draw_circle(pts[0], 4.0, Color(0.3, 0.6, 1.0))
 			draw_circle(pts[pts.size() - 1], 4.0, Color(1.0, 0.25, 0.25))
 		if race and race.rival:
-			draw_circle(_map(race.rival.global_position), 5.0, race.rival.info.color)
+			draw_circle(_map(race.rival.global_position), 5.0, Cars.get_car(race.rival.info.get("car", "s13")).paint)
 		if race and race.car:
 			draw_circle(_map(race.car.global_position), 5.5, Color.WHITE)
 			draw_circle(_map(race.car.global_position), 3.0, Color.BLACK)

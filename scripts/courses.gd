@@ -19,7 +19,7 @@ static func all() -> Array:
 			"data": "res://tracks/haruna.json",
 			"blurb": "The real Route 33, from the pass by Lake Haruna down to the hot-spring town of Ikaho. Built from OpenStreetMap and real elevation data. Deep gutters line the inside of the hairpins.",
 			"width": 7.0, "grade": -7.0, "time": "night",
-			"rival": {"name": "Haruto Inaba", "car": "coupe", "color": Color(0.95, 0.85, 0.1), "skill": 1.0},
+			"rival": {"name": "Haruto Inaba", "car": "ae86", "skill": 0.93},
 			"segments": [
 				["S", 120, -3], ["R", 35, 140], ["S", 90], ["L", 60, 90], ["S", 70],
 				["R", 90, 45], ["S", 140, -8], ["L", 40, 120], ["R", 30, 150], ["S", 160, -8],
@@ -38,7 +38,7 @@ static func all() -> Array:
 			"data": "res://tracks/myogi.json",
 			"blurb": "The real Route 196 under the jagged peaks of Mt. Myogi, built from OpenStreetMap and survey data. Narrow, technical and never quite straight.",
 			"width": 5.8, "grade": -7.5, "time": "night",
-			"rival": {"name": "Sora Kaneda", "car": "sedan", "color": Color(0.2, 0.22, 0.26), "skill": 1.0},
+			"rival": {"name": "Sora Kaneda", "car": "r32", "skill": 0.97},
 			"segments": [
 				["S", 80, -4], ["L", 70, 40], ["R", 80, 35], ["L", 60, 45], ["S", 90],
 				["R", 140, 18], ["S", 70], ["L", 90, 25], ["R", 60, 40], ["S", 230, -9],
@@ -55,7 +55,7 @@ static func all() -> Array:
 			"data": "res://tracks/akagi.json",
 			"blurb": "The real Route 4 down Mt. Akagi toward Maebashi: wide two-lane road, fast straights and runs of numbered hairpins. Built from OpenStreetMap and survey data.",
 			"width": 7.6, "grade": -6.5, "time": "night",
-			"rival": {"name": "Ren Ishikawa", "car": "coupe", "color": Color(0.95, 0.95, 0.97), "skill": 1.06},
+			"rival": {"name": "Ren Ishikawa", "car": "fd3s", "skill": 1.00},
 			"segments": [
 				["S", 160, -4], ["R", 40, 160], ["S", 200, -7], ["L", 170, 18], ["S", 220, -8],
 				["R", 170, 18], ["S", 180, -7], ["L", 50, 120], ["S", 120], ["R", 90, 40],
@@ -71,7 +71,7 @@ static func all() -> Array:
 			"data": "res://tracks/usui.json",
 			"blurb": "The real old Route 18 over Usui Pass, from Karuizawa down to Yokokawa: 184 numbered corners, narrow and endlessly twisting. Built from OpenStreetMap and survey data.",
 			"width": 5.6, "grade": -6.0, "time": "night",
-			"rival": {"name": "Aoi Shimizu", "car": "coupe", "color": Color(0.9, 0.9, 0.92), "skill": 1.04},
+			"rival": {"name": "Aoi Shimizu", "car": "sil80", "skill": 1.00},
 			"segments": [
 				["S", 70, -3], ["L", 80, 30], ["R", 90, 28], ["L", 110, 22], ["R", 70, 35],
 				["L", 60, 40], ["R", 130, 20], ["L", 90, 26], ["S", 40], ["R", 100, 24],
@@ -88,7 +88,7 @@ static func all() -> Array:
 			"data": "res://tracks/irohazaka.json",
 			"blurb": "The real First Irohazaka (Route 120), one-way downhill from Lake Chuzenji: 28 hairpins, each named after a character of the iroha alphabet. Built from OpenStreetMap and survey data.",
 			"width": 7.0, "grade": -8.0, "time": "night",
-			"rival": {"name": "Daichi Mori", "car": "hatch", "color": Color(0.85, 0.1, 0.1), "skill": 1.03},
+			"rival": {"name": "Daichi Mori", "car": "evo3", "skill": 1.02},
 			"segments": [
 				["S", 110, -4], ["R", 60, 80], ["S", 120], ["L", 170, 13], ["S", 70],
 				["R", 170, 13], ["S", 90], ["L", 150, 15], ["S", 140, -9], ["R", 175, 12],
@@ -104,7 +104,7 @@ static func all() -> Array:
 			"region": "Saitama",
 			"blurb": "Long, rough mountain road with tight mid-speed corners stacked one after another.",
 			"width": 6.0, "grade": -6.5, "time": "night",
-			"rival": {"name": "Yuto Sakamoto", "car": "sedan", "color": Color(0.1, 0.3, 0.75), "skill": 1.05},
+			"rival": {"name": "Yuto Sakamoto", "car": "ek9", "skill": 1.00},
 			"segments": [
 				["S", 100, -3], ["R", 100, 30], ["L", 80, 35], ["S", 120], ["R", 60, 50],
 				["L", 140, 20], ["S", 90], ["R", 160, 17], ["L", 50, 60], ["S", 160, -8],
@@ -120,7 +120,7 @@ static func all() -> Array:
 			"data": "res://tracks/tsuchisaka.json",
 			"blurb": "The real Route 71 over Tsuchisaka Pass between Gunma and Saitama: long forest descents and tight hairpins. Built from OpenStreetMap and survey data.",
 			"width": 7.8, "grade": -6.0, "time": "night",
-			"rival": {"name": "Minato Kuroda", "car": "sedan", "color": Color(0.55, 0.55, 0.6), "skill": 1.04},
+			"rival": {"name": "Minato Kuroda", "car": "s13", "skill": 1.02},
 			"segments": [
 				["S", 180, -4], ["L", 50, 150], ["S", 160], ["R", 70, 110], ["S", 140],
 				["L", 90, 70], ["S", 200, -8], ["R", 120, 45], ["S", 150], ["L", 60, 130],
@@ -134,7 +134,7 @@ static func all() -> Array:
 			"region": "Ibaraki",
 			"blurb": "Fruit-line style descent: tight ups and downs through forest, with grip-sapping off-camber hairpins.",
 			"width": 6.2, "grade": -7.0, "time": "night",
-			"rival": {"name": "Itsuki Hara", "car": "hatch", "color": Color(0.1, 0.55, 0.3), "skill": 1.05},
+			"rival": {"name": "Itsuki Hara", "car": "eg6", "skill": 1.03},
 			"segments": [
 				["S", 90, -3], ["L", 90, 30], ["S", 110], ["R", 170, 14], ["S", 90],
 				["L", 60, 55], ["R", 60, 55], ["S", 150, -9], ["L", 165, 15], ["S", 100],
@@ -149,7 +149,7 @@ static func all() -> Array:
 			"data": "res://tracks/nanamagari.json",
 			"blurb": "The real Route 732 through Hakone: the staircase of linked hairpins called the seven bends, then fast sweepers. Built from OpenStreetMap and survey data.",
 			"width": 6.8, "grade": -8.5, "time": "night",
-			"rival": {"name": "Hayato Ozawa", "car": "coupe", "color": Color(0.1, 0.1, 0.12), "skill": 1.08},
+			"rival": {"name": "Hayato Ozawa", "car": "fc3s", "skill": 1.05},
 			"segments": [
 				["S", 120, -4], ["R", 45, 120], ["S", 150], ["L", 70, 60], ["S", 100],
 				# the seven bends
@@ -166,7 +166,7 @@ static func all() -> Array:
 			"data": "res://tracks/tsubaki.json",
 			"blurb": "The real Route 75, the Tsubaki Line from Hakone down toward Yugawara and the sea: ridge-top switchbacks into long sweeping bends. Built from OpenStreetMap and survey data.",
 			"width": 6.6, "grade": -7.0, "time": "night",
-			"rival": {"name": "Riku Onodera", "car": "coupe", "color": Color(0.75, 0.05, 0.08), "skill": 1.1},
+			"rival": {"name": "Riku Onodera", "car": "r34", "skill": 1.07},
 			"segments": [
 				["S", 100, -4], ["L", 160, 16], ["S", 70], ["R", 165, 15], ["S", 70],
 				["L", 120, 22], ["S", 120], ["R", 80, 40], ["L", 60, 60], ["S", 180, -8],

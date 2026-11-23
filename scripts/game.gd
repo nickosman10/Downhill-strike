@@ -9,11 +9,15 @@ const MODE_NAMES := ["Time Attack", "Downhill Battle", "Dawn Delivery"]
 var course_index := 0
 var mode: int = Mode.BATTLE
 var records := ConfigFile.new()
+var selected_car := "ae85"
 
 
 func _ready() -> void:
 	_setup_input()
 	records.load(SAVE_PATH)
+	selected_car = records.get_value("garage", "selected", "ae85")
+	if not is_unlocked(selected_car):
+		selected_car = "ae85"
 
 
 func _setup_input() -> void:
@@ -80,3 +84,31 @@ static func format_time(t: float) -> String:
 	var m := int(t / 60.0)
 	var s := fmod(t, 60.0)
 	return "%d:%06.3f" % [m, s]
+
+
+# ---------------------------------------------------------------- garage
+
+func unlocked_cars() -> Array:
+	return records.get_value("garage", "unlocked", ["ae85"])
+
+
+func is_unlocked(id: String) -> bool:
+	return id in unlocked_cars()
+
+
+## Returns true when the car is new to the garage.
+func unlock_car(id: String) -> bool:
+	var u := unlocked_cars()
+	if id in u:
+		return false
+	u.append(id)
+	records.set_value("garage", "unlocked", u)
+	records.save(SAVE_PATH)
+	return true
+
+
+func select_car(id: String) -> void:
+	if is_unlocked(id):
+		selected_car = id
+		records.set_value("garage", "selected", id)
+		records.save(SAVE_PATH)

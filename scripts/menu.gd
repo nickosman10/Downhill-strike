@@ -15,6 +15,11 @@ var preview: CoursePreview
 var now_label: Label
 var music_info: Label
 var builtin_toggle: CheckButton
+var garage_idx := 0
+var car_name: Label
+var car_note: Label
+var car_status: Label
+var car_bars: StatBars
 
 # backdrop
 var backdrop: Node3D
@@ -23,6 +28,23 @@ var bd_car: CarModel
 var bd_cam: Camera3D
 var bd_s := 400.0
 var bd_angle := 0.0
+
+
+class StatBars extends Control:
+	var values: Dictionary = {}
+
+	func _draw() -> void:
+		var names := values.keys()
+		var row_h := size.y / maxf(names.size(), 1)
+		var font := ThemeDB.fallback_font
+		for i in names.size():
+			var y := i * row_h
+			draw_string(font, Vector2(0, y + row_h * 0.72), names[i], HORIZONTAL_ALIGNMENT_LEFT, 110, 14, Color(0.75, 0.8, 0.9))
+			var x0 := 115.0
+			var w := size.x - x0 - 8.0
+			draw_rect(Rect2(x0, y + row_h * 0.25, w, row_h * 0.5), Color(0.1, 0.12, 0.2))
+			var v: float = clampf(values[names[i]] / 10.0, 0.0, 1.0)
+			draw_rect(Rect2(x0, y + row_h * 0.25, w * v, row_h * 0.5), Color(1.0, 0.78, 0.22).lerp(Color(1.0, 0.4, 0.2), v * 0.5))
 
 
 class CoursePreview extends Control:
@@ -171,6 +193,44 @@ func _ready() -> void:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right.add_child(spacer)
 
+	# ---- garage: pick your car, see its stats, see how to unlock the rest
+	var garage := PanelContainer.new()
+	garage.add_theme_stylebox_override("panel", _panel_style())
+	right.add_child(garage)
+	var grow := HBoxContainer.new()
+	grow.add_theme_constant_override("separation", 12)
+	garage.add_child(grow)
+	var prev := _button("◀", 22, 90)
+	prev.custom_minimum_size.x = 44
+	prev.pressed.connect(func(): _garage_step(-1))
+	grow.add_child(prev)
+	var gv := VBoxContainer.new()
+	gv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grow.add_child(gv)
+	car_name = Label.new()
+	car_name.add_theme_font_size_override("font_size", 24)
+	car_name.add_theme_color_override("font_color", ACCENT)
+	gv.add_child(car_name)
+	car_note = Label.new()
+	car_note.add_theme_font_size_override("font_size", 13)
+	car_note.add_theme_color_override("font_color", Color(0.7, 0.75, 0.85))
+	car_note.autowrap_mode = TextServer.AUTOWRAP_WORD
+	gv.add_child(car_note)
+	var brow := HBoxContainer.new()
+	gv.add_child(brow)
+	car_bars = StatBars.new()
+	car_bars.custom_minimum_size = Vector2(330, 100)
+	brow.add_child(car_bars)
+	car_status = Label.new()
+	car_status.add_theme_font_size_override("font_size", 14)
+	car_status.autowrap_mode = TextServer.AUTOWRAP_WORD
+	car_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	brow.add_child(car_status)
+	var nxt := _button("▶", 22, 90)
+	nxt.custom_minimum_size.x = 44
+	nxt.pressed.connect(func(): _garage_step(1))
+	grow.add_child(nxt)
+
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", _panel_style())
 	right.add_child(card)
@@ -250,6 +310,8 @@ func _ready() -> void:
 	right.add_child(credit)
 
 	Music.now_playing.connect(func(_t): _refresh_music())
+	garage_idx = maxi(Cars.ORDER.find(Game.selected_car), 0)
+	_refresh_garage()
 	course_list.select(Game.course_index)
 	_on_mode(Game.mode)
 	_refresh_music()
@@ -263,7 +325,7 @@ func _build_backdrop() -> void:
 	bd_track = Track.new()
 	backdrop.add_child(bd_track)
 	bd_track.build(courses[0])
-	bd_car = CarModel.create("hatch", Color(0.96, 0.96, 0.94))
+	bd_car = CarModel.for_car(Game.selected_car)
 	backdrop.add_child(bd_car)
 	bd_cam = Camera3D.new()
 	bd_cam.far = 12000.0
@@ -303,6 +365,40 @@ func _on_mode(i: int) -> void:
 	for k in mode_buttons.size():
 		mode_buttons[k].button_pressed = k == i
 	_refresh()
+
+
+func _garage_step(d: int) -> void:
+	garage_idx = posmod(garage_idx + d, Cars.ORDER.size())
+	_refresh_garage()
+
+
+func _refresh_garage() -> void:
+	var id: String = Cars.ORDER[garage_idx]
+	var c := Cars.get_car(id)
+	car_name.text = c.name
+	car_note.text = "%s   ·   %d hp  ·  %d kg  ·  %s" % [c.note, c.hp, c.kg, c.drive]
+	car_bars.values = Cars.bars(id)
+	car_bars.queue_redraw()
+	if Game.is_unlocked(id):
+		Game.select_car(id)
+		car_status.text = "✔ In your garage — selected"
+		car_status.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
+	else:
+		var how := ""
+		for crs in courses:
+			if crs.rival.get("car", "") == id:
+				how = "Beat %s on %s (Downhill Battle) to win this car." % [crs.rival.name, crs.name]
+		if how == "":
+			how = {"180sx": "Win 3 downhill battles to unlock.", "s2000": "Win 6 downhill battles to unlock."}.get(id, "Locked.")
+		car_status.text = "🔒 LOCKED\n" + how + "\nDriving: " + Cars.get_car(Game.selected_car).name
+		car_status.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
+	# show the browsed car on the night drive behind the menu
+	if bd_car:
+		var xf := bd_car.transform
+		bd_car.queue_free()
+		bd_car = CarModel.for_car(id)
+		backdrop.add_child(bd_car)
+		bd_car.transform = xf
 
 
 func _refresh() -> void:

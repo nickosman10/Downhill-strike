@@ -50,6 +50,8 @@ const SHAPES := {
 }
 
 var template := "hatch"
+var spec: Dictionary = {}
+var panda_split := true
 var body_color := Color(0.95, 0.95, 0.93)
 var lower_color := Color(0.05, 0.05, 0.06)
 
@@ -72,6 +74,20 @@ var _braking := false
 
 static var _flare_tex: Texture2D
 static var _shadow_tex: Texture2D
+
+
+## Build any car from the garage (Cars.ROSTER) by id.
+static func for_car(id: String, override_paint := Color(-1, 0, 0)) -> CarModel:
+	var c: Dictionary = Cars.get_car(id)
+	var m := CarModel.new()
+	m.template = "car"
+	m.spec = c.body
+	m.panda_split = c.get("panda", false)
+	m.body_color = c.paint if override_paint.r < 0.0 else override_paint
+	m.lower_color = c.lower
+	m._build()
+	m.scale = Vector3.ONE * 0.92
+	return m
 
 
 static func create(tmpl: String, color: Color, lower := Color(0.05, 0.05, 0.06)) -> CarModel:
@@ -162,6 +178,9 @@ func _region(strip: int, y: float, z: float) -> int:
 			return 1
 	elif strip <= 1:
 		return 1
+	var ck: Array = _shape.get("cockpit", [99.0, 99.0])
+	if strip >= 7 and z > ck[0] and z < ck[1]:
+		return 3
 	if z > g[0] and z < g[1]:
 		if strip == 5 or strip == 6:
 			if z > side[0] and z < side[1]:
@@ -283,8 +302,67 @@ func surface_y(z: float, x := 0.0) -> float:
 
 # ------------------------------------------------------------------ build
 
+## Normalised side profiles per body style:
+## [f along length 0..1, belt/H, top/H, half-width/W*2, top width/half-width]
+const PROFILES := {
+	"hatch": {"st": [[0.0, .45, .47, .92, .85], [0.02, .50, .53, .98, .92], [0.1, .53, .58, 1, .95], [0.22, .57, .63, 1, .95],
+		[0.30, .60, .66, 1, .92], [0.32, .61, .70, 1, .88], [0.50, .63, .96, 1, .80], [0.75, .65, .98, 1, .78],
+		[0.93, .66, .80, .99, .80], [0.98, .64, .70, .96, .85], [1.0, .60, .62, .92, .82]],
+		"glass": [0.32, 0.93], "roof": [0.5, 0.75], "side": [0.34, 0.88], "b": [0.55, 0.58]},
+	"notch": {"st": [[0.0, .44, .46, .92, .85], [0.02, .50, .53, .98, .93], [0.1, .53, .57, 1, .95], [0.3, .58, .63, 1, .93],
+		[0.33, .59, .67, 1, .88], [0.5, .61, .97, 1, .80], [0.70, .63, .98, 1, .79], [0.80, .65, .72, 1, .88],
+		[0.96, .66, .70, .99, .92], [1.0, .62, .64, .95, .88]],
+		"glass": [0.33, 0.80], "roof": [0.5, 0.70], "side": [0.35, 0.76], "b": [0.55, 0.58]},
+	"fastback": {"st": [[0.0, .42, .44, .92, .85], [0.02, .48, .51, .98, .92], [0.12, .52, .56, 1, .95], [0.32, .57, .62, 1, .93],
+		[0.35, .58, .66, 1, .88], [0.52, .60, .97, 1, .80], [0.66, .62, .98, 1, .79], [0.93, .65, .71, 1, .88],
+		[0.98, .64, .68, .97, .9], [1.0, .60, .62, .94, .88]],
+		"glass": [0.35, 0.93], "roof": [0.52, 0.66], "side": [0.37, 0.80], "b": [0.6, 0.62]},
+	"wedge": {"st": [[0.0, .36, .38, .9, .8], [0.03, .42, .45, .97, .9], [0.15, .48, .52, 1, .95], [0.36, .56, .60, 1, .92],
+		[0.39, .57, .64, 1, .86], [0.55, .60, .97, 1, .78], [0.68, .62, .98, 1, .77], [0.88, .66, .72, 1, .88],
+		[0.97, .66, .70, .98, .92], [1.0, .6, .62, .94, .88]],
+		"glass": [0.39, 0.88], "roof": [0.55, 0.68], "side": [0.41, 0.80], "b": [9.0, 9.0]},
+	"roadster": {"st": [[0.0, .42, .44, .92, .85], [0.02, .48, .51, .98, .92], [0.12, .52, .56, 1, .95], [0.36, .58, .62, 1, .93],
+		[0.40, .59, .66, 1, .88], [0.50, .60, .90, 1, .78], [0.53, .60, .66, 1, .85], [0.75, .62, .66, 1, .88],
+		[0.95, .64, .68, .99, .92], [1.0, .6, .62, .95, .88]],
+		"glass": [0.40, 0.50], "roof": [0.0, 0.0], "side": [9.0, 9.0], "b": [9.0, 9.0], "cockpit": [0.52, 0.74]},
+}
+
+
+func _make_shape(sp: Dictionary) -> Dictionary:
+	if sp.get("kind", "") == "ae86":
+		var d: Dictionary = SHAPES.hatch.duplicate(true)
+		d.panda = 0.56 if panda_split else 0.3
+		return d
+	var L: float = sp.L
+	var W: float = sp.W
+	var H: float = sp.H
+	var prof: Dictionary = PROFILES[sp.kind]
+	var st: Array = []
+	for row in prof.st:
+		var z: float = -L * 0.5 + row[0] * L
+		var w: float = W * 0.5 * row[3] - 0.02
+		st.append([z, 0.24, row[1] * H, row[2] * H, w, w * row[4]])
+	var zf := func(f: float) -> float: return -L * 0.5 + f * L
+	return {
+		"stations": st,
+		"glass": [zf.call(prof.glass[0]), zf.call(prof.glass[1])],
+		"roof": [zf.call(prof.roof[0]), zf.call(prof.roof[1])],
+		"side": [zf.call(prof.side[0]) if prof.side[0] < 2.0 else 99.0, zf.call(prof.side[1]) if prof.side[0] < 2.0 else 99.0],
+		"b_pillar": [zf.call(prof.b[0]) if prof.b[0] < 2.0 else 99.0, zf.call(prof.b[1]) if prof.b[0] < 2.0 else 99.0],
+		"cockpit": [zf.call(prof.cockpit[0]), zf.call(prof.cockpit[1])] if prof.has("cockpit") else [99.0, 99.0],
+		"wheel_z": L * 0.285,
+		"panda": (H * 0.43) if panda_split else 0.3,
+		"popups": sp.get("lamps", "fixed") == "popup",
+		"popup_z": -L * 0.5 + 0.32,
+		"spoiler": false,
+	}
+
+
 func _build() -> void:
-	_shape = SHAPES.get(template, SHAPES.hatch)
+	if template == "car":
+		_shape = _make_shape(spec)
+	else:
+		_shape = SHAPES.get(template, SHAPES.hatch)
 	body = Node3D.new()
 	add_child(body)
 	var paint := _mat(body_color * Color(0.88, 0.88, 0.88), 0.2, 0.1)
@@ -330,27 +408,56 @@ func _build() -> void:
 		_box(Vector3(0.16, 0.06, 0.03), Vector3(sx * 0.62, 0.43, front_z - 0.06), amber)
 		_box(Vector3(0.07, 0.09, 0.14), Vector3(sx * (front_s[4] + 0.07), front_s[2] + 0.12 + 0.05, -0.5), black)   # mirror
 		_box(Vector3(0.02, 0.05, 0.05), Vector3(sx * (front_s[4] + 0.03), front_s[2] + 0.12, -0.46), black)
-	match template:
-		"sedan":
+	var look: Dictionary = spec
+	if template != "car":
+		look = {"hatch": {"lamps": "popup", "wing": "roof", "tail": "bar"},
+			"coupe": {"lamps": "popup", "wing": "duck", "tail": "wide"},
+			"sedan": {"lamps": "fixed", "wing": "big", "tail": "round"}}.get(template, {})
+	if spec.get("kind", "") == "ae86":
+		look = {"lamps": "popup", "wing": "roof", "tail": "bar"}
+	var belt_r: float = rear_s[2]
+	var top_r: float = st_list[st_list.size() - 1][3]
+	var half_r: float = rear_s[4]
+	match look.get("tail", "bar"):
+		"round":
 			for sx in [-1.0, 1.0]:
 				for k in 2:
-					var tl := _box(Vector3(0.16, 0.16, 0.03), Vector3(sx * (0.42 + k * 0.24), 0.76, rear_z + 0.01), tail_mat)
-					tl.mesh.size = Vector3(0.16, 0.16, 0.03)
-				var hl := _box(Vector3(0.38, 0.12, 0.03), Vector3(sx * 0.5, 0.64, front_z + 0.0), lens_mat)
-				head_glow.append(hl)
-			_box(Vector3(0.5, 0.1, 0.03), Vector3(0, 0.64, front_z + 0.0), black)
+					var cyl := CylinderMesh.new()
+					cyl.top_radius = 0.085
+					cyl.bottom_radius = 0.085
+					cyl.height = 0.04
+					var tl := MeshInstance3D.new()
+					tl.mesh = cyl
+					tl.material_override = tail_mat
+					tl.rotation.x = PI / 2
+					tl.position = Vector3(sx * (half_r - 0.2 - k * 0.24), belt_r - 0.1, rear_z + 0.015)
+					body.add_child(tl)
+		"wide":
+			_box(Vector3(half_r * 2.0 - 0.2, 0.12, 0.03), Vector3(0, belt_r - 0.1, rear_z + 0.012), tail_mat)
 		_:
 			for sx in [-1.0, 1.0]:
-				_box(Vector3(0.44, 0.13, 0.03), Vector3(sx * 0.5, 0.72, rear_z + 0.012), tail_mat)
-			_box(Vector3(0.52, 0.13, 0.03), Vector3(0, 0.72, rear_z + 0.012), black)
-	if _shape.spoiler:
-		_box(Vector3(1.1, 0.035, 0.2), Vector3(0, 1.295, 1.02), black)
-	if template == "sedan":
-		_box(Vector3(1.55, 0.04, 0.28), Vector3(0, 1.17, 2.05), paint)
+				_box(Vector3(0.44, 0.13, 0.03), Vector3(sx * (half_r - 0.32), belt_r - 0.1, rear_z + 0.012), tail_mat)
+			_box(Vector3(maxf(half_r * 2.0 - 1.4, 0.3), 0.13, 0.03), Vector3(0, belt_r - 0.1, rear_z + 0.012), black)
+	if look.get("lamps", "popup") == "fixed":
+		var fs: Array = st_list[1]
 		for sx in [-1.0, 1.0]:
-			_box(Vector3(0.05, 0.22, 0.1), Vector3(sx * 0.62, 1.04, 2.05), paint)
-	if template == "coupe":
-		_box(Vector3(1.4, 0.04, 0.22), Vector3(0, 0.98, 2.02), paint)
+			var hl := _box(Vector3(0.36, 0.11, 0.03), Vector3(sx * (fs[4] - 0.3), fs[2] - 0.04, front_z + 0.005), lens_mat)
+			head_glow.append(hl)
+		_box(Vector3(maxf(fs[4] * 2.0 - 1.3, 0.3), 0.09, 0.03), Vector3(0, fs[2] - 0.05, front_z + 0.005), black)
+	var roof_end_z: float = _shape.roof[1]
+	match look.get("wing", "none"):
+		"roof":
+			_box(Vector3(_station_at(roof_end_z)[5] * 1.7, 0.035, 0.2), Vector3(0, _station_at(roof_end_z)[3] + 0.015, roof_end_z + 0.02), black)
+		"lip":
+			_box(Vector3(half_r * 1.6, 0.03, 0.12), Vector3(0, top_r + 0.04, rear_z - 0.12), paint)
+		"duck":
+			_box(Vector3(half_r * 1.7, 0.04, 0.22), Vector3(0, top_r + 0.06, rear_z - 0.15), paint)
+			for sx in [-1.0, 1.0]:
+				_box(Vector3(0.06, 0.1, 0.06), Vector3(sx * half_r * 0.7, top_r + 0.0, rear_z - 0.15), paint)
+		"big":
+			_box(Vector3(half_r * 1.85, 0.045, 0.3), Vector3(0, top_r + 0.25, rear_z - 0.2), paint)
+			for sx in [-1.0, 1.0]:
+				_box(Vector3(0.05, 0.24, 0.1), Vector3(sx * half_r * 0.72, top_r + 0.12, rear_z - 0.2), paint)
 
 	# pop-up headlights: lids sit flush on the hood and flip up
 	if _shape.popups:
@@ -365,7 +472,7 @@ func _build() -> void:
 			head_glow.append(lens)
 			popups.append(pivot)
 	# headlight beams + lens flares
-	var flare_y: float = 0.98 if _shape.popups else 0.64
+	var flare_y: float = 0.98 if _shape.popups else float(st_list[1][2]) - 0.04
 	var flare_z: float = (_shape.popup_z if _shape.popups else front_z) - 0.12
 	for sx in [-1.0, 1.0]:
 		var spot := SpotLight3D.new()

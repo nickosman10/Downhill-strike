@@ -16,8 +16,14 @@ signal crashed(impact: float)
 
 const G := 9.81
 const WHEELBASE := 2.4
-const POWER := 80.0          # W/kg
-const TRACTION := 5.6        # m/s^2 max drive accel
+# per-car physics (set from Cars.physics in setup)
+var car_id := "ae85"
+var power := 80.0            # W/kg at the wheels
+var traction := 5.6          # m/s^2 max drive accel
+var grip := 1.0              # cornering grip multiplier
+var drift_g := 1.0           # how hard the car can swing round in a drift
+var drift_angle := 1.0       # how much angle it holds
+var drag := 0.00045
 const BRAKE := 10.0
 const GEARS := [3.587, 2.022, 1.384, 1.0, 0.861]
 const FINAL := 4.3
@@ -86,9 +92,18 @@ var bot_brake := 0.0
 var bot_handbrake := false
 
 
-func setup(t: Track, start_s: float, start_lat: float) -> void:
+func setup(t: Track, start_s: float, start_lat: float, id := "") -> void:
+	var game: Node = (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Game")
+	car_id = id if id != "" else (game.selected_car if game else "ae86")
+	var ph := Cars.physics(car_id)
+	power = ph.power
+	traction = ph.traction
+	grip = ph.grip
+	drift_g = ph.drift_g
+	drift_angle = ph.drift_angle
+	drag = ph.drag
 	track = t
-	model = CarModel.create("hatch", Color(0.96, 0.96, 0.94))
+	model = CarModel.for_car(car_id)
 	add_child(model)
 	place(start_s, start_lat)
 
@@ -157,7 +172,7 @@ func physics_step(dt: float) -> void:
 	var inner_wheel_lat := lat + inner * 0.72
 	in_gutter = absf(curv) > 1.0 / 90.0 and absf(inner_wheel_lat) > track.hw + 0.08 \
 		and signf(lat) == inner and speed > 6.0
-	var mu := 1.0
+	var mu := grip
 	if in_gutter:
 		mu = 1.8
 		gutter_time += dt
@@ -200,12 +215,12 @@ func physics_step(dt: float) -> void:
 	if drifting:
 		var into := clampf(target_steer * drift_dir, 0.0, 1.0)
 		var counter := clampf(-target_steer * drift_dir, 0.0, 1.0)
-		var beta_t := 0.32 + 0.3 * into - 0.28 * counter + 0.12 * throttle
+		var beta_t := (0.32 + 0.3 * into - 0.28 * counter + 0.12 * throttle) * lerpf(0.75, 1.0, drift_angle)
 		if _drift_exit:
 			beta_t = 0.0
 		drift_beta = move_toward(drift_beta, beta_t, dt * (1.6 if _drift_exit else 1.2))
 		# how hard the travel direction swings round the corner
-		var lat_g := G * (0.55 + 0.5 * into - 0.35 * counter) * (1.6 if in_gutter else 1.0)
+		var lat_g := G * drift_g * (0.55 + 0.5 * into - 0.35 * counter) * (1.6 if in_gutter else 1.0)
 		var omega := drift_dir * lat_g / maxf(speed, 6.0)
 		# follow the road a little so a held drift carries you round the bend
 		var road_omega := speed * curv
@@ -249,10 +264,10 @@ func physics_step(dt: float) -> void:
 	v_long = vel.dot(fwd)
 	var a_drive := 0.0
 	if throttle > 0.0:
-		a_drive = throttle * minf(TRACTION, POWER / maxf(speed, 4.0))
+		a_drive = throttle * minf(traction, power / maxf(speed, 4.0))
 		if drifting:
 			a_drive *= 0.9
-	var a_resist := 0.00045 * speed * speed + 0.12
+	var a_resist := drag * speed * speed + 0.12
 	if brake > 0.0 and v_long > 0.5:
 		a_resist += BRAKE * brake
 	elif brake > 0.0 and control_enabled:

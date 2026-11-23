@@ -21,11 +21,11 @@ var _lights := true
 func setup(t: Track, rival: Dictionary, start_s: float, start_lat: float) -> void:
 	track = t
 	info = rival
-	model = CarModel.create(rival.get("car", "coupe"), rival.get("color", Color.RED),
-		rival.get("color", Color.RED).darkened(0.35))
+	model = CarModel.for_car(rival.get("car", "s13"))
 	add_child(model)
 	var skill: float = rival.get("skill", 1.0)
-	profile = track.speed_profile(0.9 * skill, 66.0 * skill)
+	var ph := Cars.physics(rival.get("car", "s13"))
+	profile = track.speed_profile(0.86 * ph.grip * skill, ph.power * 0.8 * skill)
 	s = start_s
 	lat = start_lat
 	_place(0.0)

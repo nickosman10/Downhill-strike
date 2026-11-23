@@ -228,10 +228,19 @@ func _check_finish() -> void:
 			var won := not rival.finished
 			title = "YOU WIN!" if won else "YOU LOSE"
 			color = Color(0.4, 1, 0.4) if won else Color(1, 0.35, 0.3)
-			lines.append("vs %s" % rival.info.name)
+			lines.append("vs %s  (%s)" % [rival.info.name, Cars.get_car(rival.info.get("car", "")).name])
 			if won:
 				var margin := (track.finish_s - rival.s) / maxf(rival.v, 1.0)
 				lines.append("Won by about %.2f s" % margin)
+				var rid: String = course.rival.get("car", "")
+				if Game.unlock_car(rid):
+					lines.append("NEW CAR: %s joins your garage!" % Cars.get_car(rid).name)
+				var wins: int = Game.records.get_value("garage", "wins", 0) + 1
+				Game.records.set_value("garage", "wins", wins)
+				Game.records.save(Game.SAVE_PATH)
+				for bonus in [[3, "180sx"], [6, "s2000"]]:
+					if wins >= bonus[0] and Game.unlock_car(bonus[1]):
+						lines.append("BONUS CAR for %d wins: %s!" % [bonus[0], Cars.get_car(bonus[1]).name])
 			else:
 				lines.append("Lost by %.2f s" % (race_time - rival.finish_time))
 		Game.Mode.DAWN_DELIVERY:
