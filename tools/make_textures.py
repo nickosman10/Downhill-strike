@@ -353,6 +353,19 @@ def shelter_panel():
     save("shelter_panel.png", arr)
 
 
+def chevron():
+    """Corner arrow board: yellow face, black border, two black arrows
+    pointing right (mirrored in game for left-hand corners)."""
+    w, h = 160, 200
+    img = Image.new("RGB", (w, h), (250, 205, 20))
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, w - 1, h - 1], outline=(15, 15, 15), width=10)
+    for x0 in (30, 78):
+        d.polygon([(x0, 40), (x0 + 24, 40), (x0 + 58, 100), (x0 + 24, 160), (x0, 160), (x0 + 34, 100)], fill=(15, 15, 15))
+    img.save(os.path.join(OUT, "chevron.png"))
+    print("wrote chevron.png")
+
+
 if __name__ == "__main__":
     asphalt()
     ground()
@@ -365,3 +378,4 @@ if __name__ == "__main__":
     masonry()
     bus_stop_sign()
     shelter_panel()
+    chevron()

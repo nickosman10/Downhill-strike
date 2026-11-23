@@ -92,6 +92,15 @@ func _blocked(p: Vector3, r: float) -> bool:
 	return false
 
 
+## True if the hillside rises over this spot: anything standing here would be
+## half swallowed by the mountain.
+func _buried(p: Vector3, r: float) -> bool:
+	for off in [Vector2.ZERO, Vector2(r, 0), Vector2(-r, 0), Vector2(0, r), Vector2(0, -r)]:
+		if t.terrain_height(p.x + off.x, p.z + off.y) > p.y + 0.45:
+			return true
+	return false
+
+
 func _register_mesh(mesh: Mesh, xf: Transform3D) -> void:
 	if mesh == null:
 		return
@@ -107,14 +116,18 @@ func _plant_pending() -> void:
 		var xfs: Array = job[1]
 		var cols: Array = job[2]
 		var clear: float = job[5]
+		var own: float = job[6]          # space this plant takes once planted
 		var keep_x: Array = []
 		var keep_c: Array = []
 		for k in xfs.size():
 			var o: Vector3 = xfs[k].origin
-			if _blocked(o, clear):
+			var sc: float = xfs[k].basis.get_scale().x
+			if _blocked(o, clear * clampf(sc, 0.8, 1.6)):
 				continue
 			keep_x.append(xfs[k])
 			keep_c.append(cols[k] if cols.size() > k else Color.WHITE)
+			# later trunks and bushes keep clear of this one
+			_keep_out(o, own * sc)
 		_mm_chunked(mesh, keep_x, null, keep_c, job[3], job[4])
 
 
@@ -507,7 +520,7 @@ func _trees() -> void:
 			cols[k2].append(Color(v, v, v))
 	for kind in 3:
 		# planted at the end, around everything else (trunk + a little canopy room)
-		_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 2.0])
+		_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35])
 
 
 func _bushes() -> void:
@@ -527,7 +540,10 @@ func _bushes() -> void:
 					continue
 				var off: float = t.rail + rng.randf_range(0.9, 14.0 if inner else 11.0)
 				var p: Vector3 = t.P[i] + t.R[i] * side * off + t.D[i] * rng.randf_range(-1.0, 1.0)
-				p.y = t.terrain_height(p.x, p.z) - 0.2
+				var hi := t.terrain_height(p.x, p.z)
+				for o2 in [Vector2(0.8, 0), Vector2(-0.8, 0), Vector2(0, 0.8), Vector2(0, -0.8)]:
+					hi = maxf(hi, t.terrain_height(p.x + o2.x, p.z + o2.y))
+				p.y = hi - 0.3
 				if absf(p.y - t.P[i].y) > 9.0 or t.dist_to_road(p) < t.rail + 0.9:
 					continue
 				var sc := rng.randf_range(0.8, 1.6) * (1.0 + (off - t.rail) * 0.05)
@@ -536,7 +552,7 @@ func _bushes() -> void:
 				var v := rng.randf_range(0.85, 1.2)
 				cols[k].append(Color(v, v, v))
 	for k in 2:
-		_pending.append([meshes[k], xf[k], cols[k], 120.0, 450.0, 0.9])
+		_pending.append([meshes[k], xf[k], cols[k], 120.0, 450.0, 0.55, 0.55])
 
 
 func _poles() -> void:
@@ -855,7 +871,7 @@ func _boxm(size: Vector3) -> BoxMesh:
 
 
 func _clear_spot(p: Vector3, need: float) -> bool:
-	return t.dist_to_road(p) >= need and not _blocked(p, 0.6)
+	return t.dist_to_road(p) >= need and not _blocked(p, 0.6) and not _buried(p, 0.4)
 
 
 func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
@@ -866,7 +882,7 @@ func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
 	for off: float in [0.0, 2.0, -2.0, 4.0, -4.0, 6.0, -6.0]:
 		var c := base + along * off
 		# the arm reaches 1.8 m toward the road, so check the pole and the arm tip
-		if not _blocked(c, 0.35) and not _blocked(c + toward_road * 1.8, 0.4):
+		if not _blocked(c, 0.35) and not _blocked(c + toward_road * 1.8, 0.4) and not _buried(c, 0.3):
 			spot = c
 			found = true
 			break
@@ -911,7 +927,7 @@ func _street_lamps() -> void:
 
 
 func _vending(p: Vector3, facing: Vector3) -> void:
-	if _blocked(p, 0.6):
+	if _blocked(p, 0.6) or _buried(p, 0.5):
 		return
 	var b := Basis.looking_at(-facing, Vector3.UP)
 	var palette := [Color(0.85, 0.12, 0.1), Color(0.1, 0.35, 0.85), Color(0.95, 0.95, 0.95)]
@@ -1429,7 +1445,7 @@ func _bus_stop(at: Vector3, face: Vector3) -> void:
 	# side panels, roof and bench, with the round stop sign on its own pole
 	var along := face.cross(Vector3.UP).normalized()
 	var back := at - face * 1.8
-	if _blocked(back, 1.7) or _blocked(at + along * 2.0, 0.4):
+	if _blocked(back, 1.7) or _blocked(at + along * 2.0, 0.4) or _buried(back, 1.5) or _buried(at, 0.5):
 		return
 	var fb := Basis.looking_at(face, Vector3.UP)
 	var frame := _mat(Color(0.32, 0.34, 0.38), 0.5)
@@ -1602,17 +1618,22 @@ func _red_pavement() -> void:
 
 
 func _chevron_rows() -> void:
-	var img := Image.create(64, 32, false, Image.FORMAT_RGB8)
-	for y in 32:
-		for x in 64:
-			var u := fmod(x + absf(y - 15.5) * 1.2, 32.0)
-			img.set_pixel(x, y, Color(0.05, 0.05, 0.05) if u < 13.0 else Color(0.98, 0.8, 0.05))
-	var m := _mat(Color.WHITE, 0.6)
-	m.albedo_texture = ImageTexture.create_from_image(img)
-	m.emission_enabled = true
-	m.emission_texture = m.albedo_texture
-	m.emission = Color(0.3, 0.3, 0.3)
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# corner arrow boards: small yellow panels on posts behind the rail on the
+	# outside of tight corners, facing the driver, arrows pointing round the bend
+	var tex: Texture2D = load("res://assets/textures/chevron.png")
+	var mats := {}
+	for dir in [1.0, -1.0]:
+		var m := _mat(Color.WHITE, 0.5)
+		m.albedo_texture = tex
+		m.uv1_scale = Vector3(dir, 1, 1)
+		m.emission_enabled = true
+		m.emission_texture = tex
+		m.emission = Color(0.35, 0.35, 0.35)
+		mats[dir] = m
+	var back_mat := _mat(Color(0.3, 0.32, 0.35), 0.6)
+	var post_mat := _mat(Color(0.7, 0.72, 0.75), 0.4)
+	var face_q := QuadMesh.new()
+	face_q.size = Vector2(0.6, 0.75)
 	var n := t.P.size()
 	var i := 0
 	while i < n:
@@ -1622,15 +1643,17 @@ func _chevron_rows() -> void:
 		var j := i
 		while j < n and absf(t.K[j]) >= 1.0 / 30.0:
 			j += 1
-		var side := -signf(t.K[i])
-		for k in range(i, j, 3):
-			var p: Vector3 = t.P[k] + t.R[k] * side * (t.rail - 0.15)
-			if t.dist_to_road(p) < t.rail - 0.6:
+		var side := -signf(t.K[i])            # outside of the corner
+		var turn_right: float = 1.0 if t.K[i] > 0.0 else -1.0
+		for k in range(i, j, 4):
+			var p: Vector3 = t.P[k] + t.R[k] * side * (t.rail + 0.45)
+			if not _clear_spot(p, t.rail + 0.2):
 				continue
-			var face: Vector3 = -t.R[k] * side
-			if side < 0.0:
-				face = -face
-			_piece(_boxm(Vector3(1.9, 0.75, 0.04)), m, Transform3D(Basis.looking_at(t.D[k] * side, Vector3.UP), p + Vector3.UP * 0.95))
+			var b := Basis.looking_at(t.D[k], Vector3.UP)      # face toward oncoming cars
+			_piece(face_q, mats[turn_right], Transform3D(b, p + Vector3.UP * 1.25 - t.D[k] * 0.03))
+			_piece(_boxm(Vector3(0.62, 0.77, 0.03)), back_mat, Transform3D(b, p + Vector3.UP * 1.25))
+			for sx: float in [-0.2, 0.2]:
+				_piece(_boxm(Vector3(0.05, 1.2, 0.05)), post_mat, Transform3D(b, p + b.x * sx + Vector3.UP * 0.6 + t.D[k] * 0.04))
 		i = j
 
 
