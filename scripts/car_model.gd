@@ -693,11 +693,6 @@ func _build_glb(scene: PackedScene) -> void:
 	if lamp_pos.is_empty():
 		for sx in [-1.0, 1.0]:
 			lamp_pos.append(Vector3(sx * 0.55, 0.62, front_z + 0.05))
-		for mi: MeshInstance3D in inst.find_children("*", "MeshInstance3D", true, false):
-			for i in mi.mesh.get_surface_count():
-				var sm := mi.mesh.surface_get_material(i)
-				if sm and sm.resource_name == "Lens":
-					head_glow.append(mi)
 	for lp in lamp_pos:
 		var spot := SpotLight3D.new()
 		spot.position = Vector3(lp.x, 0.8, front_z - 0.1)
@@ -810,6 +805,8 @@ func _apply_lights() -> void:
 		h.light_energy = 5.0 * open
 	for g in head_glow:
 		g.visible = open > 0.4
+	if lens_mat:
+		lens_mat.emission_energy_multiplier = lerpf(0.0, 6.0, open)
 
 
 func update_visual(dt: float, steer_angle: float, speed: float, braking: bool, wheel_offsets: Array = []) -> void:

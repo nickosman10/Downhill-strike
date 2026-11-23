@@ -717,7 +717,9 @@ class Car:
                     path.append(Vector((sx * cx, y, (z0 + z1) / 2)))
                     nrm.append(Vector((0, 0, 1)))
             h = (z1 - z0) / 2
-            prof = [(-0.03, -h), (0.03, -h + 0.01), (0.04, 0), (0.03, h - 0.01), (-0.03, h)]
+            # black urethane bumpers stand out; body-colour ones sit nearly flush
+            bul = 0.04 if mname != "Paint" else 0.014
+            prof = [(-0.03, -h), (bul * 0.75, -h + 0.01), (bul, 0), (bul * 0.75, h - 0.01), (-0.03, h)]
             if sgn < 0:
                 prof = [(-u, v) for u, v in reversed(prof)]
             bm = bmesh.new()
@@ -767,6 +769,7 @@ class Car:
         # ---- wipers, antenna, exhaust, wing
         self.wipers(tree)
         self.antenna(tree)
+        self.hoops(tree)
         self.wing(tree)
         self.exhaust()
         self.interior()
@@ -775,6 +778,24 @@ class Car:
         kind, face = item[0], item[1]
         x0, x1, z0, z1, mname = item[2:7]
         opts = item[7] if len(item) > 7 else {}
+        if kind == "disc":
+            # round lamp: centre (x0, z0), radius x1
+            for sx in ((1, -1) if opts.get("mirror", True) else (1,)):
+                cx, r = sx * x0, x1
+                for rr, m, prd, th in ((r + 0.012, "Trim", 0.003, 0.006), (r, mname, 0.008, 0.01)):
+                    n = 20
+                    verts = [(cx, z0)] + [(cx + rr * math.cos(math.tau * k / n), z0 + rr * math.sin(math.tau * k / n)) for k in range(n)]
+                    faces = [(0, 1 + k, 1 + (k + 1) % n) for k in range(n)]
+                    if face == "F":
+                        fn = lambda uv: (uv[0], self.L, uv[1])
+                        dirv = (0, -1, 0)
+                    else:
+                        fn = lambda uv: (uv[0], -self.L, uv[1])
+                        dirv = (0, 1, 0)
+                    ob = self.decal("disc", tree, verts, faces, fn, dirv, m, prd, th)
+                    shade(ob, 50)
+                    self.parts.append(ob)
+            return
         mirror = opts.get("mirror", True)
         for sx in ((1, -1) if mirror else (1,)):
             xa, xb = (x0, x1) if sx > 0 else (-x1, -x0)
@@ -787,6 +808,10 @@ class Car:
                     za = lerp(z0, z1, k / n)
                     zb = za + (z1 - z0) / n * 0.45
                     self.panel(tree, "slat", face, xa, xb, za, zb, mname, opts.get("proud", 0.006), 10, 1, 0.01, 0.003)
+            elif kind == "headlamp":
+                # black housing slightly larger than the lens, lens standing proud in it
+                self.panel(tree, "hlh", face, xa - 0.012, xb + 0.012, z0 - 0.012, z1 + 0.012, "Trim", 0.003, 10, 4, 0.006, 0.004)
+                self.panel(tree, "hl", face, xa, xb, z0, z1, mname, 0.008, 10, 4, 0.01, 0.005)
             elif kind == "panel":
                 self.panel(tree, "pnl", face, xa, xb, z0, z1, mname, opts.get("proud", 0.003), 10, 3,
                            opts.get("thick", 0.0), opts.get("round", 0.0))
@@ -835,7 +860,7 @@ class Car:
         d, z = m
         belt = self.st(d)[2]
         # sail: triangle filling the front lower corner of the side window
-        tri = [(d - 0.07, belt + 0.02), (d + 0.12, belt + 0.02), (d - 0.07 + s.get("a_run", 0.12), belt + 0.16)]
+        tri = [(d - 0.05, belt + 0.015), (d + 0.10, belt + 0.015), (d - 0.05 + min(s.get("a_run", 0.12), 0.08), belt + 0.11)]
         fn = lambda uv: (sx * 2.0, self.Y(uv[0]), uv[1])
         sail = self.decal("sail", tree, tri, [(0, 1, 2)], fn, (-sx, 0, 0), "Trim", 0.002, 0.014)
         shade(sail, 40)
@@ -926,49 +951,72 @@ class Car:
         self.parts.append(ob)
 
     def wing(self, tree):
+        """Spoilers sit on the panel: every point of the base is projected onto the body."""
         s = self.s
         wg = s.get("wing")
         if not wg:
             return
         kind = wg[0]
         bm = bmesh.new()
-        if kind == "roof":
-            # small lip at the trailing edge of the roof (hatchbacks)
-            d = s["roof"][1] + 0.02
-            bot, crease, belt, top, w, rw = self.st(d)
-            path = [Vector((x, self.Y(d) + 0.0, top + 0.012)) for x in [-rw + 0.04, -rw * 0.5, 0, rw * 0.5, rw - 0.04]]
-            sweep(bm, path, [(-0.0, -0.01), (0.012, 0.0), (0.0, 0.012), (-0.17, 0.006), (-0.17, -0.002)])
-        elif kind == "lip":
-            # hatch spoiler: its base follows the panel surface exactly
-            d = wg[1]
-            bot, crease, belt, top, w, rw = self.st(d)
-            path, nrm = [], []
-            for k in range(13):
-                x = lerp(-w + 0.09, w - 0.09, k / 12)
-                hit, n = self.project(tree, (x, self.Y(d), 3.0), (0, 0, -1))
-                if hit is None:
-                    continue
-                path.append(hit)
-                nrm.append(Vector((0, 0, 1)))
-            sweep(bm, path, [(0.03, -0.012), (0.04, 0.012), (0.0, 0.045), (-0.1, 0.03), (-0.13, 0.012), (-0.12, -0.012)], normals=nrm)
-        elif kind in ("big", "duck"):
-            d = wg[1]
-            hgt = wg[2]
-            chord = wg[3]
-            bot, crease, belt, top, w, rw = self.st(d)
-            span = w - 0.05
-            path = [Vector((x, self.Y(d), top + hgt)) for x in [-span, -span * 0.5, 0, span * 0.5, span]]
-            prof = [(0.0, -0.012), (0.02, 0.0), (0.0, 0.016), (-chord * 0.5, 0.02), (-chord, 0.012 + chord * 0.12), (-chord, 0.0 + chord * 0.1), (-chord * 0.5, -0.008)]
+        d = wg[1] if len(wg) > 1 and wg[1] else s["roof"][1] + 0.02
+        bot, crease, belt, top, w, rw = self.st(d)
+        span = (rw - 0.16) if kind == "roof" else (w - 0.09)
+        surf = []
+        for k in range(13):
+            x = lerp(-span, span, k / 12)
+            hit, n = self.project(tree, (x, self.Y(d), 3.0), (0, 0, -1))
+            if hit is not None:
+                surf.append(hit)
+        # drop points that landed off the panel (pillars, glass edges)
+        zs = sorted(p.z for p in surf)
+        med = zs[len(zs) // 2]
+        surf = [p for p in surf if abs(p.z - med) < 0.05]
+        if kind in ("lip", "roof", "duck"):
+            hgt = wg[2] if len(wg) > 2 else 0.04
+            chord = wg[3] if len(wg) > 3 else 0.12
+            nrm = [Vector((0, 0, 1))] * len(surf)
+            # wedge profile rising from the surface, trailing edge at the back
+            prof = [(chord * 0.25, -0.012), (chord * 0.3, 0.008), (0.0, hgt), (-chord * 0.7, hgt * 0.75),
+                    (-chord * 0.75, hgt * 0.3), (-chord * 0.6, -0.012)]
+            sweep(bm, surf, prof, normals=nrm)
+        elif kind == "big":
+            hgt, chord = wg[2], wg[3]
+            zt = max(p.z for p in surf) + hgt
+            path = [Vector((p.x, p.y, zt)) for p in surf]
+            prof = [(chord * 0.5, -0.01), (chord * 0.52, 0.004), (chord * 0.4, 0.018), (-chord * 0.2, 0.024),
+                    (-chord * 0.5, 0.016 + chord * 0.12), (-chord * 0.5, chord * 0.1), (0.0, -0.008)]
             sweep(bm, path, prof)
-            if hgt > 0.03:
-                for sx in (-1, 1):
-                    xx = sx * span * 0.72
-                    box_bm(bm, Vector((xx, self.Y(d) + chord * 0.45, top + hgt * 0.5 - 0.005)), (0.025, chord * 0.55, hgt + 0.02), 0)
-                    # endplates
-                    box_bm(bm, Vector((sx * span, self.Y(d) + chord * 0.45, top + hgt + 0.02)), (0.008, chord * 1.05, 0.09), 0)
+            for sx in (-1, 1):
+                xx = sx * span * 0.68
+                hit, n = self.project(tree, (xx, self.Y(d), 3.0), (0, 0, -1))
+                zb = hit.z - 0.01 if hit else zt - hgt
+                box_bm(bm, Vector((xx, self.Y(d), (zt + zb) / 2)), (0.03, chord * 0.5, zt - zb), 0)
+                # endplates
+                box_bm(bm, Vector((sx * (span + 0.004), self.Y(d), zt + 0.02)), (0.008, chord * 1.05, 0.1), 0)
         ob = new_obj("wing", bm, [self.M[wg[4] if len(wg) > 4 else "Paint"]])
         flip_outward_obj(ob)
         shade(ob, 45)
+        self.parts.append(ob)
+
+    def hoops(self, tree):
+        """Roll hoops behind the seats (roadsters)."""
+        h = self.s.get("hoops")
+        if not h:
+            return
+        d, height = h
+        belt = self.st(d)[2]
+        bm = bmesh.new()
+        for sx in (-1, 1):
+            cx = sx * 0.36
+            path = []
+            for k in range(13):
+                a = math.pi * k / 12
+                path.append(Vector((cx + 0.2 * math.cos(a), self.Y(d), belt - 0.02 + (height) * math.sin(a))))
+            sweep(bm, path, [(0.022 * math.cos(t), 0.022 * math.sin(t)) for t in [k * math.tau / 8 for k in range(8)]],
+                  normals=[Vector((0, 1, 0))] * len(path))
+        ob = new_obj("hoops", bm, [self.M["Chrome"]])
+        flip_outward_obj(ob)
+        shade(ob, 60)
         self.parts.append(ob)
 
     def exhaust(self):
@@ -1317,6 +1365,9 @@ def render(path, cid, pops=()):
         lo.rotation_euler = (Vector((0, 0, 0)) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
         scn.collection.objects.link(lo)
     views = [("front34", (3.6, 4.4, 1.5)), ("rear34", (-3.4, -4.6, 1.6)), ("side", (6.0, 0.0, 0.9)), ("front", (0.0, 6.5, 0.9))]
+    want = os.environ.get("CAR_VIEWS")
+    if want:
+        views = [v for v in views if v[0] in want.split(",")]
     cam_d = bpy.data.cameras.new("c")
     cam_d.lens = 50
     cam = bpy.data.objects.new("cam", cam_d)
