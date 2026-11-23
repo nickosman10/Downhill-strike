@@ -47,6 +47,7 @@ func build(track: Track) -> void:
 		_village()
 	else:
 		_real_features()
+	_curbs()
 	_curve_signs_and_mirrors()
 	_skid_marks()
 	if t.style.get("red_pavement", false):
@@ -995,6 +996,54 @@ func _curve_mirror(base: Vector3, look: Vector3, orange: Material, mirror_mat: M
 	rim.ring_segments = 6
 	var rim_mat := _mat(Color(0.06, 0.06, 0.07), 0.6)
 	_piece(rim, rim_mat, Transform3D(face_b, centre + look * 0.015))
+
+
+## Raised concrete curb along every stretch with no wall, guardrail or tunnel,
+## with the grass bank behind it, like the night corners in the anime's
+## background paintings. One continuous strip per run so it reads smooth.
+func _curbs() -> void:
+	var curb := _mat(Color(0.82, 0.82, 0.8), 0.9)
+	curb.albedo_texture = load("res://assets/textures/concrete.png")
+	curb.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# section across the curb (lateral offset from the rail line, height)
+	var prof := [[-0.08, -0.03], [-0.05, 0.16], [0.0, 0.19], [0.22, 0.19], [0.26, -0.05]]
+	var n := t.P.size()
+	for side: float in [-1.0, 1.0]:
+		for i in range(1, n):
+			var ok := true
+			for j in [i - 1, i]:
+				if t.has_rail(j, side) or t.in_tunnel(j) or wall_sides.has(Vector2i(j, int(side))):
+					ok = false
+			if not ok:
+				continue
+			var u0 := t.S[i - 1] / 2.0
+			var u1 := t.S[i] / 2.0
+			for k in prof.size() - 1:
+				var la: float = t.rail + prof[k][0]
+				var lb: float = t.rail + prof[k + 1][0]
+				var ha: float = prof[k][1]
+				var hb: float = prof[k + 1][1]
+				var a: Vector3 = t.P[i - 1] + t.R[i - 1] * side * la + Vector3.UP * ha
+				var b: Vector3 = t.P[i - 1] + t.R[i - 1] * side * lb + Vector3.UP * hb
+				var c: Vector3 = t.P[i] + t.R[i] * side * la + Vector3.UP * ha
+				var d: Vector3 = t.P[i] + t.R[i] * side * lb + Vector3.UP * hb
+				var e := Vector2(lb - la, hb - ha)
+				var nrm := (t.R[i] * side * -e.y + Vector3.UP * e.x).normalized()
+				if nrm.y < -0.1:
+					nrm = -nrm
+				st.set_normal(nrm)
+				var va := float(k) * 0.1
+				var vb := float(k + 1) * 0.1
+				for q in [[a, Vector2(u0, va)], [c, Vector2(u1, va)], [b, Vector2(u0, vb)], [b, Vector2(u0, vb)], [c, Vector2(u1, va)], [d, Vector2(u1, vb)]]:
+					st.set_uv(q[1])
+					st.add_vertex(q[0])
+	st.set_material(curb)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	curb.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_add(mi)
 
 
 func _skid_marks() -> void:

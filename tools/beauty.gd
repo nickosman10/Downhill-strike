@@ -42,6 +42,10 @@ func _ready() -> void:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	get_window().size = Vector2i(1920, 1080)
+	if args.size() > 1 and args[1] == "curb":
+		await _curb_shot()
+		get_tree().quit()
+		return
 	if args.size() > 1 and args[1] == "one":
 		await _shot(SHOTS[1])
 		get_tree().quit()
@@ -169,3 +173,43 @@ func _shot(spec: Array) -> void:
 	await _save(spec[0])
 	race.queue_free()
 	await _frames(3)
+
+
+## A stretch with no wall and no guardrail on one side: shows the curb and bank.
+func _curb_shot() -> void:
+	var race := Race.new()
+	race.setup(Courses.all()[0], 0)
+	add_child(race)
+	await _frames(3)
+	var tr := race.track
+	race.hud.visible = false
+	var pick := -1
+	var pick_side := 1.0
+	for i in range(int(tr.P.size() * 0.3), tr.P.size() - 40):
+		for sd in [-1.0, 1.0]:
+			var clear := true
+			for j in range(i - 10, i + 25):
+				if tr.has_rail(j, sd) or tr.in_tunnel(j):
+					clear = false
+					break
+			if clear:
+				pick = i
+				pick_side = sd
+				break
+		if pick >= 0:
+			break
+	if pick < 0:
+		print("no curb stretch found")
+		return
+	race.car.place(tr.S[pick] + 6.0, -pick_side * 1.0)
+	race.set_physics_process(false)
+	var cam := Camera3D.new()
+	race.add_child(cam)
+	cam.far = 20000.0
+	var p: Vector3 = tr.P[pick]
+	cam.global_position = p - tr.D[pick] * 7.0 - tr.R[pick] * pick_side * 1.5 + Vector3.UP * 1.4
+	cam.look_at(tr.P[mini(pick + 14, tr.P.size() - 1)] + tr.R[pick] * pick_side * (tr.rail + 1.0) + Vector3.UP * 0.6, Vector3.UP)
+	cam.fov = 60.0
+	cam.current = true
+	await _frames(6)
+	await _save("curb_bank")

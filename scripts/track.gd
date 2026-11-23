@@ -419,7 +419,10 @@ func _build_road_mesh() -> void:
 	concrete.albedo_texture = load("res://assets/textures/concrete.png")
 	concrete.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	var gravel := _mat(Color(0.22, 0.2, 0.17))
-	var grass := _mat(Color(0.07, 0.11, 0.06))
+	# grass bank beyond the verge, with the grass/leaf-litter detail texture
+	var grass := _mat(Color(0.5, 0.62, 0.55), 1.0)
+	grass.albedo_texture = load("res://assets/textures/ground_detail.png")
+	grass.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	# surface id per profile strip (strip k joins profile point k and k+1)
 	var strip_mat := [2, 3, 1, 1, 0, 1, 1, 3, 2]
 	var mats := [asphalt, concrete, gravel, grass]
