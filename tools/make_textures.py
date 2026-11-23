@@ -261,6 +261,33 @@ def canopy():
     save("canopy.png", img * 255, "L")
 
 
+def masonry():
+    """Mountain-road retaining wall: squared stones laid on the diagonal in a
+    criss-cross pattern, dark mortar joints, mottled with moss and water
+    streaks. Tileable, one tile = 3 m."""
+    n = 512
+    yy, xx = np.mgrid[0:n, 0:n].astype(float)
+    s = n / 6.0                          # stones per tile edge (diagonal grid)
+    u = (xx + yy) / s
+    v = (xx - yy) / s
+    fu, fv = u - np.floor(u), v - np.floor(v)
+    joint = np.minimum(np.minimum(fu, 1 - fu), np.minimum(fv, 1 - fv))
+    mortar = np.clip(1.0 - joint / 0.05, 0, 1)
+    cell = (np.floor(u) * 13 + np.floor(v) * 7) % 17 / 17.0
+    face = 0.5 + (cell - 0.5) * 0.25 + (tile_noise(n, 24, 3, 61) - 0.5) * 0.35
+    # stones are slightly domed: lighter toward the upper-left of each face
+    face += (0.5 - fu) * 0.06 + (0.5 - fv) * 0.04
+    lum = face * (1 - mortar * 0.65)
+    moss = np.clip(tile_noise(n, 4, 4, 62) - 0.52, 0, 1) * 2.2
+    streak = tile_noise(n, 22, 2, 63)
+    streak = np.repeat(streak[:1, :], n, 0) * (0.5 + 0.5 * tile_noise(n, 2, 2, 64))
+    wet = np.clip(streak - 0.55, 0, 1) * 1.8
+    r = lum * (0.62 - moss * 0.18) - wet * 0.12
+    g = lum * (0.64 + moss * 0.05) - wet * 0.1
+    b = lum * (0.62 - moss * 0.12) - wet * 0.08
+    save("masonry.png", np.stack([r, g, b], -1) * 255)
+
+
 if __name__ == "__main__":
     asphalt()
     ground()
@@ -270,3 +297,4 @@ if __name__ == "__main__":
     leaves()
     cedar()
     canopy()
+    masonry()

@@ -231,9 +231,13 @@ func _cedar_mesh() -> ArrayMesh:
 
 func _walls() -> void:
 	# concrete retaining wall wherever the hillside rises above the road
-	var concrete := _mat(Color(0.62, 0.63, 0.64), 0.95)
-	var tex := _plain_concrete_texture() if t.style.get("concrete_walls", false) else _panel_texture()
+	# like the anime's mountain passes: a tall stone-masonry wall rising
+	# straight from the road edge (plain concrete where the real road has it)
+	var concrete := _mat(Color(0.9, 0.9, 0.9), 0.95)
+	var tex: Texture2D = load("res://assets/textures/concrete.png") if t.style.get("concrete_walls", false) \
+		else load("res://assets/textures/masonry.png")
 	concrete.albedo_texture = tex
+	concrete.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	concrete.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var fence_mat := _mat(Color(0.55, 0.6, 0.7), 0.6)
 	fence_mat.albedo_texture = _fence_texture()
@@ -261,7 +265,7 @@ func _walls() -> void:
 		heights.resize(n)
 		for i in n:
 			var probe := t.P[i] + t.R[i] * side * (t.rail + 5.0)
-			heights[i] = clampf(t.terrain_height(probe.x, probe.z) - t.P[i].y, 0.0, 4.2)
+			heights[i] = clampf(t.terrain_height(probe.x, probe.z) - t.P[i].y, 0.0, 9.0)
 		# smooth so the wall top runs cleanly
 		for pass_i in 2:
 			for i in range(1, n - 1):
@@ -284,8 +288,9 @@ func _walls() -> void:
 			var b := t.P[i] + t.R[i] * lat
 			var u0 := t.S[i - 1] / 3.0
 			var u1 := t.S[i] / 3.0
-			var top_a := a + Vector3.UP * maxf(h0, 0.3)
-			var top_b := b + Vector3.UP * maxf(h1, 0.3)
+			# the face leans back slightly (about 1 in 8), like real masonry walls
+			var top_a := a + Vector3.UP * maxf(h0, 0.3) + t.R[i - 1] * side * maxf(h0, 0.3) * 0.12
+			var top_b := b + Vector3.UP * maxf(h1, 0.3) + t.R[i] * side * maxf(h1, 0.3) * 0.12
 			# the hillside stays under the wall top right behind the wall,
 			# then may climb away from it like a real cut slope
 			for l: float in [0.9, 1.3, 2.0, 3.0, 4.2]:
