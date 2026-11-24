@@ -11,13 +11,19 @@ static var _cache := {}
 static var realistic := false
 
 
+## The photo-style renderer needs its scanned textures, which the standard
+## download leaves out to stay small.
+static func has_realistic() -> bool:
+	return ResourceLoader.exists("res://assets/pbr/asphalt_diff.jpg")
+
+
 static func hq() -> bool:
-	return realistic and RenderingServer.get_rendering_device() != null
+	return realistic and RenderingServer.get_rendering_device() != null and has_realistic()
 
 
 ## Cartoon rendering with the full desktop renderer (ink lines need it).
 static func toon() -> bool:
-	return not realistic and RenderingServer.get_rendering_device() != null
+	return not hq() and RenderingServer.get_rendering_device() != null
 
 
 static func tex(name: String, kind: String) -> Texture2D:

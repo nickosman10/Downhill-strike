@@ -306,11 +306,12 @@ func _build_main() -> void:
 			gfx.text = "GRAPHICS: " + Game.QUALITY_NAMES[Game.quality])
 		col.add_child(gfx)
 		# art style: the cartoon look, or the heavier photo-style renderer
-		var style := _button("STYLE: " + ("REALISTIC" if Mats.realistic else "ANIME"), 22, 54)
-		style.pressed.connect(func():
-			Game.set_realistic(not Mats.realistic)
-			get_tree().reload_current_scene())
-		col.add_child(style)
+		if Mats.has_realistic():
+			var style := _button("STYLE: " + ("REALISTIC" if Mats.realistic else "ANIME"), 22, 54)
+			style.pressed.connect(func():
+				Game.set_realistic(not Mats.realistic)
+				get_tree().reload_current_scene())
+			col.add_child(style)
 	if not OS.has_feature("web"):
 		var quit := _button("EXIT", 28, 64)
 		quit.pressed.connect(func(): get_tree().quit())
