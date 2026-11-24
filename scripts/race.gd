@@ -143,9 +143,9 @@ static func build_environment(parent: Node, dawn: bool) -> void:
 ## light shafts through the mist.
 static func _high_quality(env: Environment, light: DirectionalLight3D, dawn: bool) -> void:
 	if not dawn:
-		var pano := PanoramaSkyMaterial.new()
-		pano.panorama = load("res://assets/pbr/night_sky.hdr")
-		pano.energy_multiplier = 0.9
+		var pano := ShaderMaterial.new()
+		pano.shader = load("res://shaders/night_sky_hq.gdshader")
+		pano.set_shader_parameter("pano", load("res://assets/pbr/night_sky.hdr"))
 		var sky := Sky.new()
 		sky.sky_material = pano
 		sky.radiance_size = Sky.RADIANCE_SIZE_256

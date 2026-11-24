@@ -46,7 +46,9 @@ void fragment() {
 	vec2 ruv = vec2(wpos.x + wpos.z, wpos.y) * 0.22;
 	vec3 fd = mix(texture(forest_diff, guv).rgb, texture(forest_diff, guv * 0.23).rgb, 0.4);
 	vec3 rd = mix(texture(rock_diff, ruv).rgb, texture(rock_diff, ruv * 0.21).rgb, 0.4);
-	vec3 alb = mix(fd, rd, rock);
+	// damp, shaded forest floor: darker and less orange than the dry scan
+	fd = mix(vec3(dot(fd, vec3(0.33))), fd, 0.55) * vec3(0.5, 0.56, 0.42);
+	vec3 alb = mix(fd, rd * 0.8, rock);
 	vec3 nm = mix(texture(forest_nor, guv).rgb, texture(rock_nor, ruv).rgb, rock);
 	float rg = mix(texture(forest_rough, guv).r, texture(rock_rough, ruv).r, rock);
 	vec2 auv = (wpos.xz - aerial_origin) / aerial_size;
