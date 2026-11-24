@@ -617,6 +617,16 @@ func _build() -> void:
 	set_lights(true, true)
 
 
+func _toon_paint(c: Color, gloss: float, glass: bool) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/car_toon.gdshader")
+	m.set_shader_parameter("color", c)
+	m.set_shader_parameter("gloss", gloss)
+	m.set_shader_parameter("glass", 1.0 if glass else 0.0)
+	m.set_shader_parameter("key_dir", Mats.moon_dir)
+	return m
+
+
 ## High-detail model built in Blender (tools/blender_car.py).
 func _build_glb(scene: PackedScene) -> void:
 	var inst := scene.instantiate()
@@ -669,6 +679,11 @@ func _build_glb(scene: PackedScene) -> void:
 		var well := _mat(Color(0.008, 0.008, 0.01), 1.0)
 		by_name.merge({"Chrome": chrome, "RimLip": rim_lip, "Tire": tire, "Trim": trim, "Well": well})
 		tail_mat.emission_energy_multiplier = 2.0
+	if Mats.toon():
+		# cel paint: two flat tones, a hard highlight and a rim light
+		by_name["Paint"] = _toon_paint(body_color, 1.0, false)
+		by_name["Lower"] = _toon_paint(lower_color, 0.7, false)
+		by_name["Glass"] = _toon_paint(Color(0.05, 0.08, 0.16), 1.0, true)
 	var aabb := AABB()
 	var first := true
 	for mi: MeshInstance3D in inst.find_children("*", "MeshInstance3D", true, false):
@@ -725,6 +740,8 @@ func _build_glb(scene: PackedScene) -> void:
 		spot.spot_attenuation = 0.7
 		spot.light_energy = 5.0
 		spot.light_color = Color(1.0, 0.96, 0.85)
+		if Mats.toon():
+			spot.light_energy = 6.0
 		if Mats.hq():
 			spot.shadow_enabled = true
 			spot.light_energy = 9.0

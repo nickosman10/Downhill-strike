@@ -867,7 +867,8 @@ func terrain_height(x: float, z: float) -> float:
 
 func _build_terrain() -> void:
 	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/terrain.gdshader")
+	mat.shader = load("res://shaders/terrain_toon.gdshader" if Mats.toon() else "res://shaders/terrain.gdshader")
+	mat.set_shader_parameter("paint", Mats.paint_tex())
 	for pair in [["forest_diff", "forest", "diff"], ["forest_nor", "forest", "nor"], ["forest_rough", "forest", "rough"],
 			["rock_diff", "rock", "diff"], ["rock_nor", "rock", "nor"], ["rock_rough", "rock", "rough"]]:
 		mat.set_shader_parameter(pair[0], Mats.tex(pair[1], pair[2]))
@@ -890,6 +891,16 @@ func _build_terrain() -> void:
 		far_h = _load_grid(far_info)
 		var near := Rect2(terrain_info.origin[0], terrain_info.origin[1],
 			(terrain_info.nx - 1) * terrain_info.cell, (terrain_info.nz - 1) * terrain_info.cell)
+		# the coarse terrain overlaps the edge of the detailed one: keep it
+		# underneath there, so it can't rise through the road or anything on it
+		var inner := near.grow(-2.0)
+		for fj in int(far_info.nz):
+			for fi in int(far_info.nx):
+				var fx: float = far_info.origin[0] + fi * far_info.cell
+				var fz: float = far_info.origin[1] + fj * far_info.cell
+				if inner.has_point(Vector2(fx, fz)):
+					var fk := fj * int(far_info.nx) + fi
+					far_h[fk] = minf(far_h[fk], terrain_height(fx, fz) - 12.0)
 		_grid_mesh(far_info, far_h, mat, near.grow(-far_info.cell))
 	if not lake_info.is_empty():
 		var water := MeshInstance3D.new()
@@ -952,30 +963,41 @@ func _corridor_mask(mat: ShaderMaterial) -> void:
 	var cell: float = terrain_info.cell
 	var w := int((terrain_info.nx - 1) * cell)
 	var h := int((terrain_info.nz - 1) * cell)
+	# per 1 m pixel: floor height, ceiling height, and how far across its road
+	# the pixel lies. Ground between floor and ceiling is not drawn.
 	var data := PackedFloat32Array()
-	data.resize(w * h)
+	data.resize(w * h * 3)
 	data.fill(1.0e6)
 	var half := rail + 0.88      # right up to the wall line
 	for i in range(0, P.size() - 1):
-		if in_tunnel(i) or in_tunnel(i + 1):
-			continue
+		var tunnel := in_tunnel(i) or in_tunnel(i + 1)
 		var seg := S[i + 1] - S[i]
 		var steps := maxi(1, int(ceil(seg / 0.4)))
 		for k in steps + 1:
 			var f := float(k) / steps
 			var c := P[i].lerp(P[i + 1], f)
 			var r := R[i].lerp(R[i + 1], f).normalized()
-			var l := -half
-			while l <= half:
+			var across := int(ceil(2.0 * half / 0.4))
+			for m in across + 1:
+				var l := lerpf(-half, half, float(m) / across)
 				var q := c + r * l
 				var px := int(q.x - ox)
 				var pz := int(q.z - oz)
 				if px >= 0 and pz >= 0 and px < w and pz < h:
-					var idx := pz * w + px
-					var top := c.y - 0.12   # nothing of the hillside above the road edge or ditch
-					data[idx] = top if data[idx] > 1.0e5 else maxf(data[idx], top)
-				l += 0.4
-	var img := Image.create_from_data(w, h, false, Image.FORMAT_RF, data.to_byte_array())
+					var idx := (pz * w + px) * 3
+					# open road: nothing of the hillside above the road edge or ditch.
+					# tunnel: the bore is kept clear, the mountain above it stays.
+					# Where two legs of the road share a pixel, the lower one decides.
+					var fl := c.y - (0.3 if tunnel else 0.12)
+					var ce := c.y + 6.8 if tunnel else 1.0e6
+					if data[idx + 2] > 1.0e5:
+						data[idx] = fl
+						data[idx + 1] = ce
+					else:
+						data[idx] = minf(data[idx], fl)
+						data[idx + 1] = maxf(data[idx + 1], ce)
+					data[idx + 2] = minf(data[idx + 2], absf(l))
+	var img := Image.create_from_data(w, h, false, Image.FORMAT_RGBF, data.to_byte_array())
 	mat.set_shader_parameter("corridor", ImageTexture.create_from_image(img))
 	mat.set_shader_parameter("corridor_origin", Vector2(ox, oz))
 	mat.set_shader_parameter("corridor_size", Vector2(w, h))
@@ -1012,6 +1034,69 @@ func cap_terrain(caps: PackedVector3Array) -> void:
 		n.queue_free()
 	_terrain_nodes.clear()
 	_grid_mesh(terrain_info, terrain_h, _terrain_mat, Rect2())
+
+
+## Drawn height of the coarse far terrain at a point (same triangles as its mesh).
+func _far_surface(x: float, z: float) -> float:
+	var nx: int = far_info.nx
+	var nz: int = far_info.nz
+	var cell: float = far_info.cell
+	var fx := clampf((x - far_info.origin[0]) / cell, 0.0, nx - 1.001)
+	var fz := clampf((z - far_info.origin[1]) / cell, 0.0, nz - 1.001)
+	var i := int(fx)
+	var j := int(fz)
+	var a := fx - i
+	var b := fz - j
+	var h00 := far_h[j * nx + i]
+	var h10 := far_h[j * nx + i + 1]
+	var h01 := far_h[(j + 1) * nx + i]
+	var h11 := far_h[(j + 1) * nx + i + 1]
+	if a + b <= 1.0:
+		return h00 + (h10 - h00) * a + (h01 - h00) * b
+	return h11 + (h01 - h11) * (1.0 - a) + (h10 - h11) * (1.0 - b)
+
+
+## Places where the drawn mountain shows above the road or inside a tunnel:
+## [distance along the road, what]. Used by tests/terrain_check.gd.
+func terrain_faults() -> Array:
+	var out: Array = []
+	var img: Image = (_terrain_mat as ShaderMaterial).get_shader_parameter("corridor").get_image()
+	var ox: float = terrain_info.origin[0]
+	var oz: float = terrain_info.origin[1]
+	var near := Rect2(ox, oz, (terrain_info.nx - 1) * terrain_info.cell, (terrain_info.nz - 1) * terrain_info.cell)
+	var hole := near.grow(-far_info.cell) if not far_info.is_empty() else near
+	var half := rail + 0.8
+	var last := -100.0
+	for i in P.size():
+		var fault := ""
+		var l := -half
+		while l <= half and fault == "":
+			var q := P[i] + R[i] * l
+			var road_y := P[i].y
+			var tunnel := in_tunnel(i) or in_tunnel(mini(i + 1, P.size() - 1)) or in_tunnel(maxi(i - 1, 0))
+			var inside := near.has_point(Vector2(q.x, q.z))
+			var cut := 1.0e6
+			if inside:
+				var px := clampi(int(q.x - ox), 0, img.get_width() - 1)
+				var pz := clampi(int(q.z - oz), 0, img.get_height() - 1)
+				var pix := img.get_pixel(px, pz)
+				cut = pix.r
+				var th := terrain_height(q.x, q.z)
+				var ceil_y: float = pix.g
+				var drawn := th <= cut or th >= ceil_y
+				if drawn and tunnel and th > road_y - 0.25 and th < road_y + 6.5:
+					fault = "tunnel (ground %.1f m above road)" % (th - road_y)
+				elif drawn and not tunnel and th > road_y - 0.02:
+					fault = "near ground +%.1f m at %.1f m across" % [th - road_y, l]
+			if fault == "" and not far_info.is_empty() and not hole.has_point(Vector2(q.x, q.z)):
+				var fh := _far_surface(q.x, q.z)
+				if fh <= cut and fh > road_y - (0.25 if tunnel else 0.02) and fh < road_y + (6.5 if tunnel else 1.0e6):
+					fault = "far ground +%.1f m%s" % [fh - road_y, "" if inside else " (outside detailed area)"]
+			l += 0.5
+		if fault != "" and S[i] - last > 30.0:
+			out.append([S[i], fault])
+			last = S[i]
+	return out
 
 
 func _load_grid(info: Dictionary) -> PackedFloat32Array:
@@ -1074,6 +1159,9 @@ func _grid_mesh(info: Dictionary, h: PackedFloat32Array, mat: Material, hole: Re
 			var mi := MeshInstance3D.new()
 			mi.mesh = mesh
 			mi.material_override = mat
+			if Mats.toon():
+				# the hills are lit flat; only things on them throw drawn shadows
+				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(mi)
 			if not hole.has_area():
 				_terrain_nodes.append(mi)

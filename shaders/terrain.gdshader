@@ -33,8 +33,11 @@ void vertex() {
 void fragment() {
 	if (use_corridor > 0.5) {
 		vec2 cuv = (wpos.xz - corridor_origin) / corridor_size;
-		if (cuv.x > 0.0 && cuv.y > 0.0 && cuv.x < 1.0 && cuv.y < 1.0 && wpos.y > texture(corridor, cuv).r) {
-			discard;
+		if (cuv.x > 0.0 && cuv.y > 0.0 && cuv.x < 1.0 && cuv.y < 1.0) {
+			vec2 gap = texture(corridor, cuv).rg;      // floor and ceiling of the road's space
+			if (wpos.y > gap.r && wpos.y < gap.g) {
+				discard;
+			}
 		}
 	}
 	vec3 n = normalize(wnorm);

@@ -17,6 +17,11 @@ var menu_screen := "main"      # which menu screen to come back to after a race
 
 
 func _ready() -> void:
+	if Mats.toon():
+		# cartoon style: every object that enters the scene is cel-shaded
+		get_tree().node_added.connect(func(n: Node) -> void:
+			if n is GeometryInstance3D:
+				Mats.toonify_node.call_deferred(n))
 	_setup_input()
 	records.load(SAVE_PATH)
 	selected_car = records.get_value("garage", "selected", "ae85")

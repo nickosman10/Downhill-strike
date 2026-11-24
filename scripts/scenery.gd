@@ -119,6 +119,10 @@ func _plant_pending() -> void:
 		var keep_x: Array = []
 		var keep_c: Array = []
 		for k in xfs.size():
+			var o0: Vector3 = xfs[k].origin
+			var ti := t.nearest_index(o0)
+			if t.in_tunnel(ti) and o0.y < t.P[ti].y + 9.0 and t.dist_to_road(o0) < t.rail + (7.0 if clear > 1.0 else 3.0):
+				continue      # nothing grows inside a tunnel
 			var o: Vector3 = xfs[k].origin
 			var sc: float = xfs[k].basis.get_scale().x
 			if _blocked(o, clear * clampf(sc, 0.8, 1.6)):
@@ -127,7 +131,13 @@ func _plant_pending() -> void:
 			keep_c.append(cols[k] if cols.size() > k else Color.WHITE)
 			# later trunks and bushes keep clear of this one
 			_keep_out(o, own * sc)
-		_cast_shadows = Mats.hq() and clear > 1.0      # trees cast real shadows
+		if job.size() > 7:
+			# detail levels: [mesh, from, to, casts shadow] per level, in small chunks so
+			# each patch of forest switches level by its own distance from the camera
+			for lod in job[7]:
+				_mm_lod(lod[0], keep_x, keep_c, 48.0, lod[1], lod[2], lod[3])
+			continue
+		_cast_shadows = (Mats.hq() or Mats.toon()) and clear > 1.0      # trees cast real shadows
 		_mm_chunked(mesh, keep_x, null, keep_c, job[3], job[4])
 		_cast_shadows = false
 
@@ -166,6 +176,45 @@ func _mm(mesh: Mesh, xf: Array, mat: Material, colors: Array = [], vis_end := 0.
 
 
 ## Chunked multimesh so far-away parts are culled.
+## Chunked multimesh for one detail level, visible between `from` and `to`
+## metres. Each chunk node sits at its own centre so its distance is measured there.
+func _mm_lod(mesh: Mesh, xf: Array, colors: Array, chunk: float, from: float, to: float, shadow: int) -> void:
+	var buckets := {}
+	for k in xf.size():
+		var o: Vector3 = xf[k].origin
+		var key := Vector2i(floori(o.x / chunk), floori(o.z / chunk))
+		if not buckets.has(key):
+			buckets[key] = [[], []]
+		buckets[key][0].append(xf[k])
+		buckets[key][1].append(colors[k] if colors.size() > k else Color.WHITE)
+	for key in buckets:
+		var list: Array = buckets[key][0]
+		var centre := Vector3.ZERO
+		for x: Transform3D in list:
+			centre += x.origin
+		centre /= list.size()
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = mesh
+		mm.instance_count = list.size()
+		for k in list.size():
+			var x: Transform3D = list[k]
+			mm.set_instance_transform(k, Transform3D(x.basis, x.origin - centre))
+			mm.set_instance_color(k, buckets[key][1][k])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.position = centre
+		mmi.cast_shadow = [GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY][shadow]
+		mmi.visibility_range_begin = from
+		mmi.visibility_range_end = to
+		if shadow != 2:
+			mmi.visibility_range_begin_margin = 5.0 if from > 0.0 else 0.0
+			mmi.visibility_range_end_margin = 5.0
+			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		_add(mmi)
+
+
 func _mm_chunked(mesh: Mesh, xf: Array, mat: Material, colors: Array, chunk: float, vis_end: float) -> void:
 	var buckets := {}
 	for k in xf.size():
@@ -197,6 +246,166 @@ func _blob_mesh(lumps: int, spread: float, radius: float, seed_v: int) -> ArrayM
 			s = radius
 		st.append_from(sphere, 0, Transform3D(Basis().scaled(Vector3(s, s * 0.85, s)), off))
 	return st.commit()
+
+
+var _toon_noise: FastNoiseLite
+var _toon_leaf := {}
+
+
+func _toon_leaf_mat(c: Color) -> ShaderMaterial:
+	if not _toon_leaf.has(c):
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/foliage_toon.gdshader")
+		m.set_shader_parameter("paint", Mats.paint_tex())
+		m.set_shader_parameter("base", c)
+		_toon_leaf[c] = m
+	return _toon_leaf[c]
+
+
+## One sculpted mass of leaves: a lumpy rounded volume (cartoon trees are
+## built from these, so they are solid from every side).
+func _puff(st: SurfaceTool, c: Vector3, rad: Vector3, seed_v: float, shade: float, rings := 7, segs := 11) -> void:
+	if _toon_noise == null:
+		_toon_noise = FastNoiseLite.new()
+		_toon_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		_toon_noise.frequency = 0.01
+	var pts: Array = []
+	for r in rings + 1:
+		var phi := PI * r / rings
+		for sg in segs + 1:
+			var th := TAU * sg / segs
+			var d := Vector3(sin(phi) * cos(th), cos(phi), sin(phi) * sin(th))
+			var bump := 1.0 + 0.26 * _toon_noise.get_noise_3d(d.x * 130.0 + seed_v, d.y * 130.0, d.z * 130.0 - seed_v)
+			# darker underneath, where the leaves shade each other
+			var sh := shade * lerpf(0.72, 1.05, clampf(d.y * 0.6 + 0.5, 0.0, 1.0))
+			pts.append([c + Vector3(d.x * rad.x, d.y * rad.y, d.z * rad.z) * bump, d, sh])
+	for r in rings:
+		for sg in segs:
+			var a := r * (segs + 1) + sg
+			for k: int in [a, a + 1, a + segs + 2, a, a + segs + 2, a + segs + 1]:
+				st.set_normal(pts[k][1])
+				st.set_color(Color(pts[k][2], pts[k][2], pts[k][2]))
+				st.add_vertex(pts[k][0])
+
+
+## Cartoon broadleaf tree: bent trunk, forked boughs, a crown of leaf masses.
+## detail 0 = beside the road, 1 = middle distance, 2 = far hillside.
+func _toon_tree(seed_v: int, leaf: Color, detail := 0) -> ArrayMesh:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	var mesh := ArrayMesh.new()
+	var bark := SurfaceTool.new()
+	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var crown := SurfaceTool.new()
+	crown.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rings: int = [7, 4, 3][detail]
+	var segs: int = [11, 7, 5][detail]
+	var sides: int = [8, 5, 3][detail]
+	var fork := Vector3(r.randf_range(-0.3, 0.3), 4.2, r.randf_range(-0.3, 0.3))
+	if detail == 0:
+		_limb(bark, Vector3(0, -0.5, 0), fork * 0.5 + Vector3(0.12, 0, 0.08), 0.34, 0.26, sides)
+		_limb(bark, fork * 0.5 + Vector3(0.12, 0, 0.08), fork, 0.26, 0.2, sides, 1.2)
+	else:
+		_limb(bark, Vector3(0, -0.5, 0), fork, 0.34, 0.2, sides)
+	var n := 4
+	for k in n:
+		var ang := TAU * k / n + r.randf_range(-0.3, 0.3)
+		var reach := r.randf_range(1.8, 2.8)
+		var tip := fork + Vector3(cos(ang) * reach, r.randf_range(1.6, 2.8), sin(ang) * reach)
+		var mid := fork.lerp(tip, 0.5) + Vector3(0, 0.3, 0)
+		var s := r.randf_range(1.7, 2.3)
+		var sh1 := r.randf_range(0.9, 1.05)
+		var sh2 := r.randf_range(0.8, 0.95)
+		if detail == 0:
+			_limb(bark, fork, mid, 0.17, 0.11, 6)
+			_limb(bark, mid, tip, 0.11, 0.05, 5)
+		elif detail == 1:
+			_limb(bark, fork, tip, 0.15, 0.05, 3)
+		if detail < 2:
+			_puff(crown, tip + Vector3(0, 0.5, 0), Vector3(s, s * 0.72, s), seed_v * 10.0 + k, sh1, rings, segs)
+		if detail == 0:
+			# a smaller mass hanging off the side of each bough
+			var side := Vector3(cos(ang + 0.9), 0, sin(ang + 0.9)) * s * 0.85
+			_puff(crown, tip + side + Vector3(0, -0.5, 0), Vector3(s, s * 0.7, s) * 0.62, seed_v * 10.0 + k + 40.0, sh2, 6, 9)
+	# the top of the crown
+	var off := Vector3(r.randf_range(-1.0, 1.0), 3.0, r.randf_range(-1.0, 1.0))
+	if detail < 2:
+		_puff(crown, fork + Vector3(0, 4.4, 0), Vector3(2.5, 1.9, 2.5), seed_v * 10.0 + 99.0, 1.08, rings, segs)
+		_puff(crown, fork + off, Vector3(2.9, 1.7, 2.9), seed_v * 10.0 + 77.0, 0.9, rings, segs)
+	else:
+		# far away the whole crown is one mass
+		_puff(crown, fork + Vector3(0, 3.2, 0), Vector3(4.6, 3.1, 4.6), seed_v * 10.0 + 99.0, 1.0, 4, 7)
+	bark.set_material(trunk_mat)
+	bark.commit(mesh)
+	crown.set_material(_toon_leaf_mat(leaf))
+	crown.commit(mesh)
+	return mesh
+
+
+## Cartoon cedar: a tall straight trunk carrying stacked skirts of foliage.
+func _toon_cedar(seed_v: int, detail := 0) -> ArrayMesh:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	var mesh := ArrayMesh.new()
+	var bark := SurfaceTool.new()
+	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var crown := SurfaceTool.new()
+	crown.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var h := 15.0
+	if detail == 0:
+		_limb(bark, Vector3(0, -0.5, 0), Vector3(0, h * 0.5, 0), 0.32, 0.2, 8)
+		_limb(bark, Vector3(0, h * 0.5, 0), Vector3(0, h - 0.5, 0), 0.2, 0.05, 6, 3.0)
+	else:
+		_limb(bark, Vector3(0, -0.5, 0), Vector3(0, h * 0.6, 0), 0.32, 0.15, 4 if detail == 1 else 3)
+	var tiers: int = [6, 4, 2][detail]
+	var segs: int = [12, 7, 5][detail]
+	for k in tiers:
+		var f := float(k) / (tiers - 1)
+		var y0 := lerpf(4.2, h - 2.6 - (0.0 if detail == 0 else 6.0 / tiers), f)
+		var rad := lerpf(2.7, 0.9 if detail == 0 else 1.5, f)
+		var th := (h - 4.2) / tiers * 1.75
+		var apex := Vector3(0, y0 + th, 0)
+		var shade := lerpf(0.85, 1.08, f)
+		var ring: Array = []
+		for sg in segs + 1:
+			var a := TAU * sg / segs
+			var wave := 1.0 + (0.2 * sin(a * 5.0 + k * 1.7) + 0.1 * sin(a * 3.0 + seed_v) if detail == 0 else 0.0)
+			var d := Vector3(cos(a), 0, sin(a))
+			ring.append([d * rad * wave + Vector3(0, y0 - (0.35 * absf(sin(a * 2.5 + k)) if detail == 0 else 0.0), 0), (d * th + Vector3.UP * rad).normalized()])
+		for sg in segs:
+			var q := [[ring[sg][0], ring[sg][1], shade * 0.8], [ring[sg + 1][0], ring[sg + 1][1], shade * 0.8], [apex, Vector3.UP, shade * 1.05]]
+			for v in q:
+				crown.set_normal(v[1])
+				crown.set_color(Color(v[2], v[2], v[2]))
+				crown.add_vertex(v[0])
+			if detail == 0:
+				# dark underside closing the skirt
+				var under := [[ring[sg + 1][0], Vector3.DOWN, 0.5], [ring[sg][0], Vector3.DOWN, 0.5], [Vector3(0, y0 + 0.5, 0), Vector3.DOWN, 0.5]]
+				for v in under:
+					crown.set_normal(v[1])
+					crown.set_color(Color(v[2], v[2], v[2]))
+					crown.add_vertex(v[0])
+	bark.set_material(trunk_mat)
+	bark.commit(mesh)
+	crown.set_material(_toon_leaf_mat(Color(0.09, 0.3, 0.2)))
+	crown.commit(mesh)
+	return mesh
+
+
+## Cartoon bush: a few low leaf masses.
+func _toon_bush(seed_v: int, size: float, leaf: Color) -> ArrayMesh:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	var mesh := ArrayMesh.new()
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in 3:
+		var s := size * r.randf_range(0.75, 1.1)
+		var off := Vector3(r.randf_range(-0.8, 0.8), 0, r.randf_range(-0.8, 0.8)) * size * (0.0 if k == 0 else 1.0)
+		_puff(st, off + Vector3(0, s * 0.55, 0), Vector3(s, s * 0.75, s), seed_v * 7.0 + k, r.randf_range(0.85, 1.05), 4, 7)
+	st.set_material(_toon_leaf_mat(leaf))
+	st.commit(mesh)
+	return mesh
 
 
 ## Canopy of crossed leaf cards around a centre (textured, alpha cut).
@@ -274,7 +483,73 @@ func _card_bush(seed_v: int) -> ArrayMesh:
 
 
 var _tree_meta := {}
+var _ph_mats := {}
+
+
+func _ph_pbr(prefix: String) -> StandardMaterial3D:
+	if not _ph_mats.has(prefix):
+		var m := StandardMaterial3D.new()
+		m.albedo_texture = load("res://assets/trees/ph/%s_diff.jpg" % prefix)
+		m.normal_enabled = true
+		m.normal_texture = load("res://assets/trees/ph/%s_nor.jpg" % prefix)
+		m.roughness_texture = load("res://assets/trees/ph/%s_rough.jpg" % prefix)
+		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		_ph_mats[prefix] = m
+	return _ph_mats[prefix]
+
+
+func _ph_leaf(tex: String, center_y: float) -> ShaderMaterial:
+	var key := "%s_%d" % [tex, int(center_y)]
+	if not _ph_mats.has(key):
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/foliage_real.gdshader")
+		m.set_shader_parameter("leaves", load("res://assets/trees/ph/%s.png" % tex))
+		m.set_shader_parameter("leaves_nor", load("res://assets/trees/ph/%s_nor.jpg" % tex))
+		m.set_shader_parameter("center_y", center_y)
+		m.set_shader_parameter("tint", Vector3(0.44, 0.56, 0.34) if tex == "jac_leaves" else Vector3(0.6, 0.86, 0.6))
+		_ph_mats[key] = m
+	return _ph_mats[key]
+
+
+## A scanned tree assembled for the game (tools/blender_ph_tree.py): the real
+## trunk and branches with the package's own twig and leaf cards.
+func _ph_tree(file: String, center_y: float) -> ArrayMesh:
+	var scene: PackedScene = load("res://assets/trees/ph/%s.glb" % file)
+	var inst := scene.instantiate()
+	var out := ArrayMesh.new()
+	for mi: MeshInstance3D in inst.find_children("*", "MeshInstance3D", true, false):
+		var src := mi.mesh
+		for i in src.get_surface_count():
+			var mat_name := ""
+			var sm := src.surface_get_material(i)
+			if sm:
+				mat_name = sm.resource_name
+			# copy the surface without the importer's automatic detail reduction,
+			# which wrecks meshes made of separate leaf cards
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, src.surface_get_arrays(i))
+			var m: Material
+			if mat_name.contains("twig"):
+				m = _ph_leaf("fir_twig", center_y)
+			elif mat_name.contains("leaves"):
+				m = _ph_leaf("jac_leaves", center_y)
+			elif mat_name.contains("trunk_c"):
+				m = _ph_pbr("fir_trunk_c")
+			elif mat_name.contains("trunk_b"):
+				m = _ph_pbr("fir_trunk_b")
+			elif mat_name.contains("trunk_a"):
+				m = _ph_pbr("fir_trunk_a")
+			elif mat_name.contains("fir_tree"):
+				m = _ph_pbr("fir_bark")
+			elif mat_name.contains("branches"):
+				m = _ph_pbr("jac_branches")
+			else:
+				m = _ph_pbr("jac_trunk")
+			out.surface_set_material(out.get_surface_count() - 1, m)
+	inst.free()
+	return out
 var _leaf_mats := {}
+var _near_trees: Array = []
+var _far_trees: Array = []
 var _cast_shadows := false
 
 
@@ -339,8 +614,8 @@ func _tree3d(kind: String, seed_v: int) -> ArrayMesh:
 		_leaf_quad(leaf_st[tex], root, along, side, length, width)
 	var center_y := 5.0
 	if kind == "fir":
-		var h := 13.0
-		center_y = 7.0
+		var h := 14.5
+		center_y = 7.5
 		# straight tapering trunk in three pieces
 		var p0 := Vector3.ZERO
 		for k in 3:
@@ -370,8 +645,8 @@ func _tree3d(kind: String, seed_v: int) -> ArrayMesh:
 		add_leaf.call("bough_0", Vector3(0, h - 1.4, 0), Vector3.UP, Vector3.BACK, 1.6, 1.0)
 	else:
 		var slender := kind == "slender"
-		var trunk_h := 6.5 if slender else 4.2
-		var crown := 2.0 if slender else 3.2
+		var trunk_h := 6.5 if slender else 4.8
+		var crown := 2.0 if slender else 4.4
 		center_y = trunk_h + 1.0
 		# trunk that wanders a little as it climbs
 		var pts: Array[Vector3] = [Vector3.ZERO]
@@ -661,7 +936,13 @@ func _fence_texture() -> ImageTexture:
 func _trees() -> void:
 	var meshes := [_card_tree(1), _card_tree(2), _card_cedar()]
 	if ResourceLoader.exists("res://assets/trees/fir_0.png"):
-		meshes = [_tree3d("broadleaf", 11), _tree3d("slender", 12), _tree3d("fir", 13)]
+		meshes = [_tree3d("broadleaf", 11), _tree3d("broadleaf", 12), _tree3d("fir", 13)]
+	var toon_lods: Array = []
+	if Mats.toon():
+		var leafs := [Color(0.13, 0.36, 0.17), Color(0.2, 0.4, 0.14)]
+		for d in 3:
+			toon_lods.append([_toon_tree(11, leafs[0], d), _toon_tree(12, leafs[1], d), _toon_cedar(13, d)])
+		meshes = toon_lods[0]
 	var sets := [[], [], []]
 	var cols := [[], [], []]
 	for k in range(0, t.tree_data.size(), 4):
@@ -697,7 +978,42 @@ func _trees() -> void:
 			cols[k2].append(Color(v, v, v))
 	for kind in 3:
 		# planted at the end, around everything else (trunk + a little canopy room)
-		_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35])
+		if Mats.hq() and ResourceLoader.exists("res://assets/trees/ph/fir_b.glb"):
+			if _near_trees.is_empty():
+				# each kind: the scanned tree at full, medium and light weight, then a flat cut-out
+				for spec in [["broadleaf_a", 8.0, "broadleaf", 12.0], ["fir_a", 12.0, "fir", 19.0], ["fir_b", 9.0, "fir", 14.1]]:
+					_near_trees.append([_ph_tree(spec[0], spec[1]), _ph_tree(spec[0] + "_m", spec[1]), _ph_tree(spec[0] + "_l", spec[1])])
+					_far_trees.append(_photo_tree(spec[2], spec[3]))
+			var q := 2
+			var game: Node = (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Game")
+			if game:
+				q = game.quality
+			# metres at which each weight hands over to the next, by graphics quality.
+			# Full detail is only for the trees right beside the car: there are
+			# hundreds of trees within a hundred metres of any point on the road.
+			var r0: float = [0.0, 12.0, 20.0][q]
+			var r1: float = [22.0, 40.0, 55.0][q]
+			var r2: float = [80.0, 110.0, 140.0][q]
+			var shadow_r: float = [0.0, 45.0, 70.0][q]
+			var t: Array = _near_trees[kind]
+			var lods: Array = []
+			if r0 > 0.0:
+				lods.append([t[0], 0.0, r0, 0])
+			lods.append([t[1], r0, r1, 0])
+			lods.append([t[2], r1, r2, 0])
+			lods.append([_far_trees[kind], r2, 900.0, 0])
+			if shadow_r > 0.0:
+				# shadows come from the light version, whatever is drawn: a tenth of the cost
+				lods.append([t[2], 0.0, shadow_r, 2])
+			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35, lods])
+		elif Mats.toon():
+			# full sculpt beside the road, simpler shapes up the hillside; shadows
+			# come from the simple shape so they cost little
+			var tl: Array = [[toon_lods[0][kind], 0.0, 80.0, 0], [toon_lods[1][kind], 80.0, 240.0, 0],
+				[toon_lods[2][kind], 240.0, 800.0, 0], [toon_lods[2][kind], 0.0, 110.0, 2]]
+			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35, tl])
+		else:
+			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35])
 
 
 func _bushes() -> void:
@@ -705,6 +1021,8 @@ func _bushes() -> void:
 	var meshes := [_card_bush(11), _card_bush(12)]
 	if ResourceLoader.exists("res://assets/trees/bush_0.png"):
 		meshes = [_photo_tree("bush", 1.9), _photo_tree("fern", 0.75)]
+	if Mats.toon():
+		meshes = [_toon_bush(21, 1.0, Color(0.14, 0.38, 0.16)), _toon_bush(22, 0.55, Color(0.22, 0.42, 0.15))]
 	var xf := [[], []]
 	var cols := [[], []]
 	var n := t.P.size()
@@ -731,7 +1049,7 @@ func _bushes() -> void:
 				var v := rng.randf_range(0.85, 1.2)
 				cols[k].append(Color(v, v, v))
 	for k in 2:
-		_pending.append([meshes[k], xf[k], cols[k], 120.0, 450.0, 0.55, 0.55])
+		_pending.append([meshes[k], xf[k], cols[k], 120.0, 240.0 if Mats.toon() else 450.0, 0.55, 0.55])
 
 
 func _poles() -> void:

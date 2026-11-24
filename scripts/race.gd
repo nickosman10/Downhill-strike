@@ -132,10 +132,60 @@ static func build_environment(parent: Node, dawn: bool) -> void:
 	env.adjustment_saturation = 1.05
 	if Mats.hq():
 		_high_quality(env, light, dawn)
+	elif Mats.toon():
+		_cartoon(env, light, dawn, parent)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	parent.add_child(we)
 	parent.add_child(light)
+
+
+## The cartoon look: flat cel lighting with crisp cast shadows, an anime
+## night sky, and ink lines drawn over the whole picture.
+static func _cartoon(env: Environment, light: DirectionalLight3D, dawn: bool, parent: Node) -> void:
+	Mats.moon_dir = Basis.from_euler(light.rotation).z
+	if not dawn:
+		var night := ShaderMaterial.new()
+		night.shader = load("res://shaders/night_sky_toon.gdshader")
+		night.set_shader_parameter("moon_dir", Mats.moon_dir)
+		var sky := Sky.new()
+		sky.sky_material = night
+		env.sky = sky
+		env.ambient_light_color = Color(0.4, 0.5, 0.8)
+		env.ambient_light_energy = 1.15
+		light.light_color = Color(0.82, 0.88, 0.98)
+		light.light_energy = 1.3
+		env.fog_light_color = Color(0.06, 0.11, 0.24)
+		env.fog_density = 0.0011
+	else:
+		env.ambient_light_energy = 0.9
+		light.light_energy = 1.4
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+	env.fog_sky_affect = 0.0          # the sky stays crisp: stars, moon and clouds
+	light.shadow_enabled = true
+	light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	light.directional_shadow_max_distance = 160.0
+	light.shadow_blur = 0.4
+	light.shadow_opacity = 0.9
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.15
+	env.glow_enabled = true
+	env.glow_intensity = 0.55
+	env.glow_bloom = 0.02
+	env.glow_hdr_threshold = 1.3
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 1.25
+	var ink := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(2, 2)
+	ink.mesh = quad
+	var im := ShaderMaterial.new()
+	im.shader = load("res://shaders/outline.gdshader")
+	ink.material_override = im
+	ink.extra_cull_margin = 16384.0
+	ink.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(ink)
 
 
 ## The full-fat look (desktop renderer only): real night sky lighting the
@@ -153,7 +203,7 @@ static func _high_quality(env: Environment, light: DirectionalLight3D, dawn: boo
 		env.sky_rotation = Vector3(0, deg_to_rad(40.0), 0)
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 		env.ambient_light_sky_contribution = 1.0
-		env.ambient_light_energy = 2.0
+		env.ambient_light_energy = 2.6
 		env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 		light.light_color = Color(0.62, 0.72, 1.0)
 		light.light_energy = 1.0
@@ -186,7 +236,8 @@ static func _high_quality(env: Environment, light: DirectionalLight3D, dawn: boo
 	env.sdfgi_energy = 1.0
 	env.volumetric_fog_enabled = q >= 1
 	light.shadow_enabled = true
-	light.directional_shadow_max_distance = [90.0, 160.0, 220.0][q]
+	light.directional_shadow_max_distance = [70.0, 110.0, 150.0][q]
+	light.shadow_opacity = 0.85      # a little moonlight still filters through the canopy
 	env.volumetric_fog_density = 0.006
 	env.volumetric_fog_albedo = Color(0.55, 0.62, 0.8)
 	env.volumetric_fog_length = 120.0

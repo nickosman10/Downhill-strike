@@ -16,18 +16,17 @@ func _ready() -> void:
 	var sc := Scenery.new()
 	sc.trunk_mat = Mats.pbr("bark", 1.0, Color(0.75, 0.7, 0.65))
 	var x := 0.0
-	for pair in [["broadleaf", 11], ["broadleaf", 5], ["slender", 12], ["fir", 13], ["fir", 4]]:
+	for item in [sc._ph_tree("broadleaf_a", 6.0), sc._ph_tree("broadleaf_a_m", 6.0), sc._ph_tree("broadleaf_a_l", 6.0), sc._photo_tree("broadleaf", 9.7), sc._ph_tree("fir_a", 12.0), sc._ph_tree("fir_a_m", 12.0), sc._ph_tree("fir_a_l", 12.0), sc._photo_tree("fir", 19.0), sc._ph_tree("fir_b", 9.0), sc._ph_tree("fir_b_m", 9.0), sc._ph_tree("fir_b_l", 9.0), sc._photo_tree("fir", 14.1)]:
 		var mi := MeshInstance3D.new()
-		mi.mesh = sc._tree3d(pair[0], pair[1])
+		mi.mesh = item
 		mi.position = Vector3(x, 0, 0)
-		mi.rotation.y = 0.6
 		add_child(mi)
-		x += 9.0
+		x += 13.0
 	var cam := Camera3D.new()
 	add_child(cam)
-	cam.position = Vector3(18, 5, 34)
-	cam.look_at(Vector3(18, 6, 0))
-	cam.fov = 40
+	cam.position = Vector3(71, 8, 70)
+	cam.look_at(Vector3(71, 9, 0))
+	cam.fov = 62
 	for i in 8:
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
