@@ -3,13 +3,15 @@ extends Node
 
 const SAVE_PATH := "user://records.cfg"
 
-enum Mode { TIME_ATTACK, BATTLE, DAWN_DELIVERY, TUTORIAL }
-const MODE_NAMES := ["Time Attack", "Downhill Battle", "Dawn Delivery", "Drift School"]
+enum Mode { TIME_ATTACK, BATTLE, DAWN_DELIVERY, TUTORIAL, SCORE_ATTACK, CAMPAIGN }
+const MODE_NAMES := ["Time Attack", "Downhill Battle", "Water Cup", "Drift School", "Score Attack", "Campaign"]
 
 var course_index := 0
 var mode: int = Mode.BATTLE
 var records := ConfigFile.new()
 var selected_car := "ae85"
+var campaign_stage := 0
+var menu_screen := "main"      # which menu screen to come back to after a race
 
 
 func _ready() -> void:
@@ -105,6 +107,23 @@ func unlock_car(id: String) -> bool:
 	records.set_value("garage", "unlocked", u)
 	records.save(SAVE_PATH)
 	return true
+
+
+# ---------------------------------------------------------------- campaign
+
+## Number of campaign stages beaten (the next one is unlocked).
+func campaign_cleared() -> int:
+	return records.get_value("campaign", "cleared", 0)
+
+
+func clear_stage(i: int) -> void:
+	if i + 1 > campaign_cleared():
+		records.set_value("campaign", "cleared", i + 1)
+		records.save(SAVE_PATH)
+
+
+func is_battle(m: int) -> bool:
+	return m == Mode.BATTLE or m == Mode.CAMPAIGN
 
 
 func select_car(id: String) -> void:

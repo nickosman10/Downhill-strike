@@ -26,7 +26,9 @@ func show_menu() -> void:
 func start_race() -> void:
 	_clear()
 	var race := Race.new()
-	race.setup(Courses.all()[Game.course_index], Game.mode)
+	var c: Dictionary = Campaign.course_for(Game.campaign_stage) if Game.mode == Game.Mode.CAMPAIGN \
+		else Courses.all()[Game.course_index]
+	race.setup(c, Game.mode)
 	race.exit_to_menu.connect(show_menu, CONNECT_DEFERRED)
 	race.restart.connect(start_race, CONNECT_DEFERRED)
 	add_child(race)

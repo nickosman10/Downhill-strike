@@ -37,7 +37,7 @@ func _ready() -> void:
 
 	car = PlayerCar.new()
 	add_child(car)
-	var battle := mode == Game.Mode.BATTLE
+	var battle := Game.is_battle(mode)
 	car.setup(track, track.start_s - 6.0, -track.hw * 0.45 if battle else 0.0)
 	car.popup.connect(_on_popup)
 	car.crashed.connect(_on_crash)
@@ -255,7 +255,7 @@ func _check_finish() -> void:
 	var title := "FINISH"
 	var color := Color.WHITE
 	match mode:
-		Game.Mode.BATTLE:
+		Game.Mode.BATTLE, Game.Mode.CAMPAIGN:
 			var won := not rival.finished
 			title = "YOU WIN!" if won else "YOU LOSE"
 			color = Color(0.4, 1, 0.4) if won else Color(1, 0.35, 0.3)
@@ -263,6 +263,14 @@ func _check_finish() -> void:
 			if won:
 				var margin := (track.finish_s - rival.s) / maxf(rival.v, 1.0)
 				lines.append("Won by about %.2f s" % margin)
+				if course.has("campaign_stage"):
+					var st: int = course.campaign_stage
+					Game.clear_stage(st)
+					if st + 1 < Campaign.STAGES.size():
+						lines.append("STAGE %d CLEAR  ·  next: %s" % [st + 1, Campaign.stage(st + 1).title])
+						Game.campaign_stage = st + 1
+					else:
+						lines.append("CAMPAIGN COMPLETE: you are the fastest downhill driver in the region!")
 				var rid: String = course.rival.get("car", "")
 				if Game.unlock_car(rid):
 					lines.append("NEW CAR: %s joins your garage!" % Cars.get_car(rid).name)
@@ -274,6 +282,9 @@ func _check_finish() -> void:
 						lines.append("BONUS CAR for %d wins: %s!" % [bonus[0], Cars.get_car(bonus[1]).name])
 			else:
 				lines.append("Lost by %.2f s" % (race_time - rival.finish_time))
+		Game.Mode.SCORE_ATTACK:
+			title = "SCORE  %d" % (car.score + int(car.combo))
+			color = Color(1.0, 0.5, 0.85)
 		Game.Mode.DAWN_DELIVERY:
 			var ok := car.cup >= 50.0
 			title = "DELIVERED!" if ok else "SPILLED IT"
@@ -325,10 +336,10 @@ func _on_crash(impact: float) -> void:
 	if state != State.RACING:
 		return
 	cam.shake(clampf(impact / 12.0, 0.2, 1.0))
-	if mode == Game.Mode.BATTLE and impact > 13.0:
+	if Game.is_battle(mode) and impact > 13.0:
 		_lose("CRASHED OUT")
 		return
-	if mode != Game.Mode.BATTLE:
+	if not Game.is_battle(mode):
 		var pen := snappedf(clampf(impact * 0.15, 0.3, 3.0), 0.1)
 		race_time += pen
 		hud.show_popup("CRASH!  +%.1f s" % pen, Color(1.0, 0.35, 0.2))
