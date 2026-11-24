@@ -75,6 +75,8 @@ var drift_beta := 0.0            # current body angle to the direction of travel
 var _drift_exit := false
 var _drift_omega := 0.0
 var spins := 0
+var _spin_t := 0.0
+var _spin_rate := 0.0
 var _held := false
 var _assist_t := 0.0         # brake-drift entry: brief assisted hold
 var _release_t := 0.0        # time since Space was released mid-drift
@@ -83,7 +85,7 @@ var stagger := 0.0           # seconds of lost control after a crash
 var auto_stop := false
 var hooked := false          # inside wheels locked in the gutter: the car follows the corner
 var _hook_dir := 0.0       # after the finish line: brake to a stop along the road
-const RECOVER_T := 0.7
+const RECOVER_T := 0.35
 var _brake_down_at := -10.0
 var _brake_up_at := -10.0
 var _brake_peak := 0.0
@@ -184,7 +186,7 @@ func physics_step(dt: float) -> void:
 	if _recover > 0.0:
 		_recover -= dt
 		# steering comes back gradually so a counter-steer can't flick the car round
-		target_steer *= lerpf(1.0, 0.45, _recover / RECOVER_T)
+		target_steer *= lerpf(1.0, 0.8, _recover / RECOVER_T)
 	# steering builds up and unwinds smoothly, like a real wheel
 	var rate := 3.2 if absf(target_steer) > absf(steer) else 4.5
 	if _recover > 0.0:
@@ -202,7 +204,7 @@ func physics_step(dt: float) -> void:
 	var curv := track.K[idx]
 	var inner := signf(curv)
 	var inner_wheel_lat := lat + inner * 0.72
-	in_gutter = absf(curv) > 1.0 / 90.0 and absf(inner_wheel_lat) > track.hw + 0.08 \
+	in_gutter = absf(curv) > 1.0 / 140.0 and absf(inner_wheel_lat) > track.hw - 0.1 \
 		and signf(lat) == inner and speed > 6.0
 	var mu := grip
 	if in_gutter:
@@ -214,12 +216,12 @@ func physics_step(dt: float) -> void:
 	else:
 		gutter_time = 0.0
 	# --- gutter hook: drop the inside wheels in and the gutter carries you round
-	if not hooked and in_gutter and speed > 8.0 and control_enabled:
+	if not hooked and in_gutter and speed > 8.0 and control_enabled and not drifting:
 		hooked = true
 		_hook_dir = inner
 	if hooked:
-		var keep := absf(curv) > 1.0 / 150.0 and signf(curv) == _hook_dir \
-			and target_steer * _hook_dir > -0.35 and control_enabled
+		var keep := absf(curv) > 1.0 / 200.0 and signf(curv) == _hook_dir \
+			and target_steer * _hook_dir > -0.5 and control_enabled and not drifting
 		if not keep:
 			hooked = false
 			_recover = RECOVER_T * 0.6
@@ -236,15 +238,17 @@ func physics_step(dt: float) -> void:
 		_steer_at_release = absf(target_steer)
 	_was_braking = braking_now
 	_detect_inertia_drift(target_steer)
-	if not drifting and speed > 9.0 and absf(target_steer) > 0.35 and handbrake and not hooked:
+	if not drifting and speed > 9.0 and absf(target_steer) > 0.35 and handbrake:
+		hooked = false
 		_start_drift(signf(target_steer))
 	# brake drift (as in the series): a stab of brake, then turn in hard.
 	# Forgiving timing: brake up to ~1 s, turn in within ~0.8 s of letting go
-	if not drifting and not hooked and speed > 12.0 and absf(target_steer) > 0.6 and control_enabled:
-		# a firm stab, released before turning in hard (not a normal braking corner)
-		var stab := _brake_up_at > _brake_down_at and _brake_up_at - _brake_down_at < 1.0 \
+	if not drifting and not hooked and speed > 12.0 and absf(target_steer) > 0.85 and control_enabled:
+		# a short firm stab, released, then a hard turn-in. A long braking zone
+		# before a corner stays ordinary braking.
+		var stab := _brake_up_at > _brake_down_at and _brake_up_at - _brake_down_at < 0.6 \
 			and _brake_peak > 0.8 and _steer_at_release < 0.45
-		if stab and _clock - _brake_up_at < 0.8:
+		if stab and _clock - _brake_up_at < 0.5:
 			_brake_up_at = -10.0          # one drift per brake stab
 			_start_drift(signf(target_steer))
 			_assist_t = 0.7               # the game holds the angle briefly, then it's yours
@@ -263,6 +267,10 @@ func physics_step(dt: float) -> void:
 	else:
 		yaw_rate = 0.0
 	yaw = wrapf(yaw + yaw_rate * dt, -PI, PI)
+	if _spin_t > 0.0:
+		# the car swings round over a moment, slowing as it goes
+		yaw = wrapf(yaw + _spin_rate * dt * (_spin_t / 0.9), -PI, PI)
+		_spin_t -= dt
 	fwd = forward2()
 
 	# --- assisted drift: the game holds the angle, you steer the line
@@ -278,7 +286,7 @@ func physics_step(dt: float) -> void:
 		elif _held and not handbrake:
 			_held = false              # let go of Space: the slide carries on
 			_release_t = 0.0
-		var follow := 0.6
+		var follow := 0.4
 		var lat_g := 0.0
 		if _held:
 			# Space held: the game helps hold the angle, you steer the line
@@ -292,7 +300,7 @@ func physics_step(dt: float) -> void:
 			var d_beta := (0.22 * throttle + 0.25 * into - 1.9 * counter - 0.12) * lerpf(0.8, 1.0, drift_angle)
 			drift_beta = maxf(0.0, drift_beta + d_beta * dt)
 			lat_g = G * drift_g * (0.42 + 0.3 * into - 0.3 * counter)
-			follow = 0.35
+			follow = 0.2
 		if in_gutter:
 			lat_g *= 1.6
 		var omega := drift_dir * lat_g / maxf(speed, 6.0)
@@ -328,7 +336,8 @@ func physics_step(dt: float) -> void:
 		if handbrake:
 			mu_lat *= 0.75
 		var max_rot := mu_lat * G / maxf(speed, 2.0) * dt
-		vel = vel.rotated(clampf(diff, -max_rot, max_rot))
+		var catch_up := diff
+		vel = vel.rotated(clampf(catch_up, -max_rot, max_rot))
 
 	# --- hooked in the gutter: travel follows the road exactly, speed is kept
 	if hooked:
@@ -337,15 +346,14 @@ func physics_step(dt: float) -> void:
 			_drift_exit = false
 		var rd := Vector2(track.D[idx].x, track.D[idx].z).normalized()
 		var spd := vel.length()
-		vel = vel.lerp(rd * spd, 1.0 - exp(-10.0 * dt))
+		vel = vel.lerp(rd * spd, 1.0 - exp(-3.5 * dt))
 		var road_yaw := atan2(rd.y, rd.x)
-		yaw = lerp_angle(yaw, road_yaw + _hook_dir * 0.08, 1.0 - exp(-7.0 * dt))
-		yaw_rate = spd * curv
+		yaw = lerp_angle(yaw, road_yaw + _hook_dir * 0.06, 1.0 - exp(-2.5 * dt))
 		fwd = forward2()
-		# hold the inside wheels down in the gutter
-		var want := _hook_dir * (track.hw - 0.45)
+		# a light pull keeps the inside wheels in the gutter
+		var want := _hook_dir * (track.hw - 0.4)
 		var r3 := track.R[idx]
-		pos += Vector3(r3.x, 0, r3.z) * (want - lat) * minf(1.0, 5.0 * dt)
+		pos += Vector3(r3.x, 0, r3.z) * (want - lat) * minf(1.0, 1.5 * dt)
 
 	# --- longitudinal
 	speed = vel.length()
@@ -390,8 +398,20 @@ func physics_step(dt: float) -> void:
 	idx = proj.i
 	s = proj.s
 	lat = proj.lat
-	var limit := track.rail - 0.9
-	if absf(lat) > limit:
+	var side_now := signf(lat) if lat != 0.0 else 1.0
+	var solid := track.has_rail(idx, side_now) or track.in_tunnel(idx) or track.walls.has(Vector2i(idx, int(side_now)))
+	var limit := track.rail - 0.9 if solid else track.rail + 0.4
+	if not solid and absf(lat) > track.rail - 0.9:
+		vel *= 1.0 - 1.2 * dt     # off onto the verge: grass and gravel slow you, no crash
+	if absf(lat) > limit and not solid:
+		var r3s: Vector3 = proj.right
+		pos -= r3s * side_now * (absf(lat) - limit)
+		lat = side_now * limit
+		var n2s := Vector2(r3s.x, r3s.z) * side_now
+		var vo := vel.dot(n2s)
+		if vo > 0.0:
+			vel -= n2s * vo
+	elif absf(lat) > limit:
 		var side := signf(lat)
 		var r3: Vector3 = proj.right
 		var push := absf(lat) - limit
@@ -410,7 +430,7 @@ func physics_step(dt: float) -> void:
 			yaw = lerp_angle(yaw, road_yaw, clampf(v_out * 0.06, 0.1, 0.45))
 			if drifting:
 				_end_drift()
-			if v_out > 2.0:
+			if v_out > 3.0:
 				_crash(v_out)
 		vel *= 1.0 - 0.5 * dt   # scraping along the rail
 	pos.y = track.surface_height(proj)
@@ -464,8 +484,9 @@ func _spin() -> void:
 	# let the slide run too long without catching it: the car swaps ends
 	popup.emit("SPIN!", Color(1.0, 0.35, 0.2))
 	spins += 1
-	vel *= 0.45
-	yaw = wrapf(yaw + drift_dir * 0.9, -PI, PI)
+	vel *= 0.5
+	_spin_t = 0.9
+	_spin_rate = drift_dir * 2.4
 	combo = 0.0
 	drift_time = 0.0
 	stagger = maxf(stagger, 1.0)
@@ -525,7 +546,7 @@ func _award(text: String, pts: int, color: Color) -> void:
 
 func _crash(impact: float) -> void:
 	# crashing costs real time: scrubbed speed and a moment of lost control
-	vel *= 1.0 - clampf(impact * 0.05, 0.1, 0.6)
+	vel *= 1.0 - clampf(0.15 + impact * 0.05, 0.15, 0.7)
 	stagger = maxf(stagger, clampf(impact * 0.1, 0.35, 1.6))
 	if combo > 0.0:
 		popup.emit("COMBO LOST", Color(1.0, 0.3, 0.2))

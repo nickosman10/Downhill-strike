@@ -37,6 +37,7 @@ func build(track: Track) -> void:
 	trunk_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	trunk_mat.albedo_color = Color(0.05, 0.05, 0.07)
 	_walls()
+	t.walls = wall_sides
 	_tunnels()
 	_slope_protection()
 	# keep the mountain behind the walls and frames, then plant on the result
@@ -1357,6 +1358,14 @@ func _real_features() -> void:
 	for b in t.features.get("buildings", []):
 		var poly: Array = b.poly
 		if poly.size() < 4:
+			continue
+		# keep houses off the road (including the run-off past the finish)
+		var on_road := false
+		for p in poly:
+			if t.dist_to_road(Vector3(p[0], 0.0, p[1])) < t.rail + 2.0:
+				on_road = true
+				break
+		if on_road:
 			continue
 		var base := _poly_y(poly) - 0.3
 		var h: float = clampf(float(b.h), 3.0, 30.0)

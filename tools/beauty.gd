@@ -42,6 +42,10 @@ func _ready() -> void:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	get_window().size = Vector2i(1920, 1080)
+	if args.size() > 1 and args[1] == "end":
+		await _shot(["finish_runoff", 0, 0, 0.995, "chase_high", false])
+		get_tree().quit()
+		return
 	if args.size() > 1 and args[1] == "tut":
 		await _shot(["tutorial_drift_school", 0, 3, 0.2, "chase_high", true])
 		get_tree().quit()

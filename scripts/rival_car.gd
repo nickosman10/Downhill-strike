@@ -19,6 +19,7 @@ var _lights := true
 var _power := 4.0
 var _traction := 5.6
 var _drag := 0.00045
+var _boost := 1.0
 var wobble := 0.0            # >0 after being hit: off line, lifting
 var _start_s := 0.0
 var _start_lat := 0.0
@@ -67,9 +68,11 @@ func step(dt: float, race_time: float) -> void:
 	var blocked := false
 	if player and not finished:
 		var gap: float = s - player.s          # > 0: rival ahead
-		# never waits for you. When you get ahead it digs a little deeper
-		if gap < -15.0 and not launching:
-			target *= 1.05
+		# never waits for you; when you get ahead it fights back hard
+		_boost = 1.0
+		if gap < -3.0 and not launching:
+			_boost = clampf(1.0 + (-gap - 3.0) / 40.0, 1.0, 1.35)
+			target *= minf(_boost, 1.12)
 		# a car alongside on the inside of the corner gets room: take the
 		# outside line, so a better drift lets the player through
 		var inside: bool = signf(player.lat) == signf(look_k) and absf(player.lat) > 0.6
@@ -83,7 +86,7 @@ func step(dt: float, race_time: float) -> void:
 	if finished:
 		target = maxf(0.0, v - 8.0)
 	# same engine and tyre limits the player's car has
-	var accel := minf(_traction, _power / maxf(v, 4.0)) - _drag * v * v - 0.12
+	var accel := minf(_traction * _boost, _power * _boost / maxf(v, 4.0)) - _drag * v * v - 0.12
 	accel += -9.81 * track.G[i]
 	if launching:
 		accel = maxf(accel, _traction * 1.3)   # a perfect launch: the rival always gets the jump

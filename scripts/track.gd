@@ -28,6 +28,8 @@ var drop := 0.0
 var hairpins := 0
 var overlaps := 0
 var min_y := 0.0
+var walls := {}                # Vector2i(i, side) -> true where a retaining wall stands
+const RUN_OFF := 260.0         # extra road past the finish so you can slow down
 
 
 func build(c: Dictionary) -> void:
@@ -36,7 +38,7 @@ func build(c: Dictionary) -> void:
 	rail = hw + GUTTER_W + SHOULDER
 	build_centerline(c)
 	_compute_grass()
-	finish_s = length - 40.0
+	finish_s = length - RUN_OFF - 40.0
 	if traced:
 		# the road gets a short verge that dives into the terrain mesh
 		for i in P.size():
@@ -69,7 +71,7 @@ func _generate_centerline(segs: Array, default_grade: float) -> void:
 	var curvs: Array[float] = []
 	var grades: Array[float] = []
 	var dists: Array[float] = []
-	var all_segs: Array = [["S", LEAD_IN, -2.0]] + segs + [["S", 60, -2.0]]
+	var all_segs: Array = [["S", LEAD_IN, -2.0]] + segs + [["S", 60, -2.0], ["S", RUN_OFF, -2.0]]
 	for seg in all_segs:
 		var seg_len: float
 		var curv := 0.0
@@ -152,10 +154,16 @@ func _load_traced(path: String) -> void:
 			bridge_idx[k] = true
 	hairpins = int(data.get("hairpins", 0))
 	var pts: Array = data.points
-	var n := pts.size()
 	var raw: Array[Vector3] = []
 	for p in pts:
 		raw.append(Vector3(p[0], p[1], p[2]))
+	# run-off road past the real end: carry on along the last heading, gently downhill
+	var m := raw.size()
+	var last_dir := Vector3(raw[m - 1].x - raw[m - 6].x, 0, raw[m - 1].z - raw[m - 6].z).normalized()
+	var step := 2.0
+	for k in range(1, int(RUN_OFF / step) + 1):
+		raw.append(raw[m - 1] + last_dir * step * k + Vector3.DOWN * 0.02 * step * k)
+	var n := raw.size()
 	var heads: Array[float] = []
 	for i in n:
 		var a := raw[maxi(i - 1, 0)]

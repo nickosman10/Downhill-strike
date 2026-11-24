@@ -49,7 +49,8 @@ func _ready() -> void:
 	if battle:
 		rival = RivalCar.new()
 		add_child(rival)
-		rival.setup(track, course.rival, track.start_s - 6.0, track.hw * 0.45)
+		# the rival lines up a car length ahead: you start the chase from behind
+		rival.setup(track, course.rival, track.start_s - 1.0, track.hw * 0.45)
 		rival.player = car
 
 	cam = ChaseCamera.new()
