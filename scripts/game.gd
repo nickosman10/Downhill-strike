@@ -3,8 +3,8 @@ extends Node
 
 const SAVE_PATH := "user://records.cfg"
 
-enum Mode { TIME_ATTACK, BATTLE, DAWN_DELIVERY }
-const MODE_NAMES := ["Time Attack", "Downhill Battle", "Dawn Delivery"]
+enum Mode { TIME_ATTACK, BATTLE, DAWN_DELIVERY, TUTORIAL }
+const MODE_NAMES := ["Time Attack", "Downhill Battle", "Dawn Delivery", "Drift School"]
 
 var course_index := 0
 var mode: int = Mode.BATTLE

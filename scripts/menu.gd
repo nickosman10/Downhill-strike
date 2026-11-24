@@ -198,7 +198,7 @@ func _ready() -> void:
 	modes.add_theme_constant_override("separation", 8)
 	left.add_child(modes)
 	for i in Game.MODE_NAMES.size():
-		var b := _button(Game.MODE_NAMES[i], 16, 44)
+		var b := _button(Game.MODE_NAMES[i], 14, 44)
 		b.toggle_mode = true
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(_on_mode.bind(i))
@@ -318,7 +318,7 @@ func _ready() -> void:
 	right.add_child(go)
 
 	var help := Label.new()
-	help.text = "DRIFT: tap Space (or tap brake) while turning · steer in = more angle, steer out = less · let go to straighten\nW/S throttle·brake   A/D steer   L lights   C camera   R reset   Esc menu   M next song   N music on/off"
+	help.text = "DRIFT: hold Space + steer into the bend · steer in = more angle, out = less · let go of Space and counter-steer to catch it · new? try Drift School\nW/S throttle·brake   A/D steer   L lights   C camera   R reset   Esc menu   M next song   N music on/off"
 	help.add_theme_font_size_override("font_size", 13)
 	help.add_theme_color_override("font_color", Color(0.6, 0.66, 0.8))
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -437,6 +437,8 @@ func _refresh() -> void:
 			mode_text = "Side-by-side downhill battle against the local ace, [color=#ffd36a]%s[/color]. First to the bottom wins. Kill your headlights while chasing to rattle them." % c.rival.name
 		Game.Mode.DAWN_DELIVERY:
 			mode_text = "The early-morning delivery run. A cup of water sits on the dash: arrive with at least half of it. Smooth is fast."
+		Game.Mode.TUTORIAL:
+			mode_text = "Learn to drive the mountain: throttle, braking, Space drifts, catching the slide, gutter hooks, inertia drifts and blind attack, one step at a time with on-screen prompts. Just you on the road."
 	var traced := "" if c.has("data") else "\n[color=#e8a]Layout still a placeholder: real map tracing coming.[/color]"
 	info.text = "[b]%s[/b]  [color=#9ab]%s[/color]\n%s%s\n\n[color=#ffd36a]%.1f km   ·   %d m drop   ·   %d hairpins[/color]\nBest: %s   ·   Drift record: %d\n\n%s" % [
 		c.name, c.region, c.blurb, traced, t.length / 1000.0, int(t.drop), t.hairpins,

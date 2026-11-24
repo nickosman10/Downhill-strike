@@ -4,14 +4,15 @@ extends SceneTree
 
 func _initialize() -> void:
 	var failures := 0
-	for ci in [0, 2, 4]:
+	for run in [[0, "ae86"], [0, "ae85"], [2, "ae86"], [4, "ae86"]]:
+		var ci: int = run[0]
 		var c: Dictionary = Courses.all()[ci]
 		var t := Track.new()
 		root.add_child(t)
 		t.build(c)
 		var car := PlayerCar.new()
 		root.add_child(car)
-		car.setup(t, t.start_s - 6.0, -t.hw * 0.45, "ae86")
+		car.setup(t, t.start_s - 6.0, -t.hw * 0.45, run[1])
 		car.control_enabled = true
 		car.hold_brake = false
 		car.bot = true
@@ -45,8 +46,10 @@ func _initialize() -> void:
 				max_gap = maxf(max_gap, absf(gap))
 			if int(time * 120.0) % (120 * 40) == 0:
 				log.append("%d:%+.0f" % [int(time), gap])
-		var line := "%-12s rival lead at 10s %+.0fm, max |gap| after 20s %.0fm | %s" % [c.name, ahead_at_10, max_gap, " ".join(log)]
-		if ahead_at_10 < 3.0 or max_gap > 60.0:
+		var margin: float = time - rv.finish_time if rv.finished else -1.0
+		var line := "%-12s %s  rival lead at 10s %+.0fm, rival won by %+.1fs | %s" % [c.name, run[1], ahead_at_10, margin, " ".join(log)]
+		# the rival always gets the jump; an AE85 must not beat an AE86 without drifting
+		if ahead_at_10 < 8.0 or (run[1] == "ae85" and margin < 10.0):
 			failures += 1
 			line = "FAIL " + line
 		print(line)

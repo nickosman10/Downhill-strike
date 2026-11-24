@@ -74,6 +74,9 @@ var drift_dir := 0.0             # +1 drifting through a right-hander, -1 left
 var drift_beta := 0.0            # current body angle to the direction of travel
 var _drift_exit := false
 var _drift_omega := 0.0
+var spins := 0
+var _held := false           # Space held during the drift (assisted)
+var _release_t := 0.0        # time since Space was released mid-drift
 var _recover := 0.0          # seconds of eased steering after a drift ends
 var stagger := 0.0           # seconds of lost control after a crash
 var auto_stop := false
@@ -179,7 +182,8 @@ func physics_step(dt: float) -> void:
 		_recover -= dt
 		# steering comes back gradually so a counter-steer can't flick the car round
 		target_steer *= lerpf(1.0, 0.45, _recover / RECOVER_T)
-	var rate := 5.0 if absf(target_steer) > absf(steer) else 7.0
+	# steering builds up and unwinds smoothly, like a real wheel
+	var rate := 3.2 if absf(target_steer) > absf(steer) else 4.5
 	if _recover > 0.0:
 		rate *= 0.6
 	steer = move_toward(steer, target_steer, rate * dt)
@@ -225,14 +229,10 @@ func physics_step(dt: float) -> void:
 		_brake_up_at = _clock
 	_was_braking = braking_now
 	_detect_inertia_drift(target_steer)
-	if not drifting and speed > 9.0 and absf(target_steer) > 0.35:
-		if handbrake:
-			_start_drift(signf(target_steer))
-		else:
-			# brake tap: a short stab of brake, then turn in hard
-			var tapped := _brake_up_at - _brake_down_at < 0.4 and _clock - _brake_up_at < 0.55
-			if tapped and absf(target_steer) > 0.8 and speed > 13.0:
-				_start_drift(signf(target_steer))
+	if not drifting and speed > 9.0 and absf(target_steer) > 0.35 and handbrake and not hooked:
+		_start_drift(signf(target_steer))
+	if drifting and handbrake and not _held:
+		_held = true          # pressed Space again mid-slide: take the assist back
 
 	# --- yaw
 	var max_steer := lerpf(0.62, 0.17, clampf(speed / 42.0, 0.0, 1.0))
@@ -240,7 +240,8 @@ func physics_step(dt: float) -> void:
 		var r_t := v_long * tan(steer * max_steer) / WHEELBASE
 		var r_max := mu * G / maxf(speed, 1.0)
 		r_t = clampf(r_t, -r_max, r_max)
-		yaw_rate = lerpf(yaw_rate, r_t, 1.0 - exp(-(6.0 if _recover > 0.0 else 10.0) * dt))
+		# the body takes a moment to settle into the turn (weight transfer)
+		yaw_rate = lerpf(yaw_rate, r_t, 1.0 - exp(-(4.5 if _recover > 0.0 else 6.5) * dt))
 	else:
 		yaw_rate = 0.0
 	yaw = wrapf(yaw + yaw_rate * dt, -PI, PI)
@@ -250,20 +251,30 @@ func physics_step(dt: float) -> void:
 	if drifting:
 		var into := clampf(target_steer * drift_dir, 0.0, 1.0)
 		var counter := clampf(-target_steer * drift_dir, 0.0, 1.0)
-		var beta_t := (0.32 + 0.3 * into - 0.28 * counter + 0.12 * throttle) * lerpf(0.75, 1.0, drift_angle)
-		if _drift_exit:
-			beta_t = 0.0
-		if _drift_exit:
-			# ease the angle out smoothly instead of a linear snap
-			drift_beta = lerpf(drift_beta, 0.0, 1.0 - exp(-3.2 * dt))
-		else:
+		if _held and not handbrake:
+			_held = false              # let go of Space: the slide carries on
+			_release_t = 0.0
+		var follow := 0.6
+		var lat_g := 0.0
+		if _held:
+			# Space held: the game helps hold the angle, you steer the line
+			var beta_t := (0.32 + 0.3 * into - 0.28 * counter + 0.12 * throttle) * lerpf(0.75, 1.0, drift_angle)
 			drift_beta = move_toward(drift_beta, beta_t, dt * 1.2)
-		# how hard the travel direction swings round the corner
-		var lat_g := G * drift_g * (0.55 + 0.5 * into - 0.35 * counter) * (1.6 if in_gutter else 1.0)
+			lat_g = G * drift_g * (0.55 + 0.5 * into - 0.35 * counter)
+		else:
+			# released: momentum keeps the car sideways. Counter-steer to catch
+			# it; throttle or steering into it keeps it swinging out
+			_release_t += dt
+			var d_beta := (0.22 * throttle + 0.25 * into - 1.9 * counter - 0.12) * lerpf(0.8, 1.0, drift_angle)
+			drift_beta = maxf(0.0, drift_beta + d_beta * dt)
+			lat_g = G * drift_g * (0.42 + 0.3 * into - 0.3 * counter)
+			follow = 0.35
+		if in_gutter:
+			lat_g *= 1.6
 		var omega := drift_dir * lat_g / maxf(speed, 6.0)
-		# follow the road a little so a held drift carries you round the bend
+		# follow the road a little so a drift carries you round the bend
 		var road_omega := speed * curv
-		omega = lerpf(omega, road_omega, 0.6)
+		omega = lerpf(omega, road_omega, follow)
 		# keep off the guard rails: ease the line back toward the road
 		var edge := clampf((absf(lat) - (track.hw - 1.4)) / 1.6, 0.0, 1.0)
 		omega -= signf(lat) * edge * 0.9
@@ -275,14 +286,13 @@ func physics_step(dt: float) -> void:
 		yaw_rate = dyaw * 8.0
 		yaw = wrapf(yaw + dyaw * minf(1.0, 8.0 * dt), -PI, PI)
 		fwd = forward2()
-		# finishing the drift: counter-steer, or let go of steering and throttle
-		if counter > 0.6 or (into < 0.1 and throttle < 0.2):
-			_idle_time += dt
-		else:
-			_idle_time = 0.0
-		if _idle_time > 0.35 or speed < 7.0:
-			_drift_exit = true
-		if _drift_exit and drift_beta < 0.035:
+		if not _held and drift_beta > 1.05:
+			_spin()
+			fwd = forward2()
+		# caught it: the slide is over
+		elif speed < 7.0 or (not _held and drift_beta < 0.05):
+			if not _held and _release_t < 0.9 and speed > 12.0:
+				_award("CLEAN CATCH", 120, Color(0.5, 1.0, 0.6))
 			_end_drift()
 			fwd = forward2()
 	# --- velocity direction follows heading, limited by tyre grip
@@ -334,7 +344,8 @@ func physics_step(dt: float) -> void:
 	if handbrake:
 		a_resist += 2.5
 	if drifting:
-		a_resist += absf(sin(drift_beta)) * speed * 0.05
+		# a long, wide slide scrubs speed; catching it quickly keeps it
+		a_resist += absf(sin(drift_beta)) * speed * (0.05 if _held else 0.075)
 	vel += fwd * a_drive * dt
 	var dv := minf(a_resist * dt, speed)
 	vel -= dir * dv
@@ -425,6 +436,18 @@ func _detect_inertia_drift(target_steer: float) -> void:
 				_award("INERTIA DRIFT", 250, Color(1.0, 0.8, 0.2))
 
 
+func _spin() -> void:
+	# let the slide run too long without catching it: the car swaps ends
+	popup.emit("SPIN!", Color(1.0, 0.35, 0.2))
+	spins += 1
+	vel *= 0.45
+	yaw = wrapf(yaw + drift_dir * 0.9, -PI, PI)
+	combo = 0.0
+	drift_time = 0.0
+	stagger = maxf(stagger, 1.0)
+	_end_drift()
+
+
 func _end_drift() -> void:
 	# hand over to grip driving without a jump: keep the car's current turning
 	# rate and let the tyres pull the travel direction in line over a moment
@@ -440,6 +463,10 @@ func _start_drift(dir: float) -> void:
 	drifting = true
 	drift_dir = dir
 	drift_beta = 0.08
+	_held = handbrake
+	_release_t = 0.0
+	if not _held:
+		drift_beta = 0.35        # flick entry: already sideways, catch it
 	_drift_exit = false
 	_idle_time = 0.0
 	drift_time = 0.0

@@ -23,13 +23,18 @@ func run(t: Track, drifter: bool) -> Dictionary:
 		var k_ahead := t.curvature_at(car.s + 12.0)
 		if drifter:
 			vt = maxf(vt, 16.0)
-			if not car.drifting and absf(k_ahead) > 1.0 / 30.0 and car.speed > 12.0 and time > hb_until + 1.0:
+			var bend := absf(k_ahead) > 1.0 / 30.0
+			if not car.drifting and bend and car.speed > 12.0 and time > hb_until + 1.0:
 				hb_until = time + 0.15
 				car.bot_steer = signf(k_ahead)
-			car.bot_handbrake = time < hb_until
-			if car.drifting:
+			# hold Space through the bend, let go as it opens out
+			car.bot_handbrake = time < hb_until or (car.drifting and car._held and absf(k_ahead) > 1.0 / 45.0)
+			if car.drifting and car._held:
 				# hold the drift: steer into the bend, more or less to follow the road
 				car.bot_steer = clampf(signf(k_ahead) * 0.5 + err * 2.0, -1.0, 1.0)
+			elif car.drifting:
+				# released: counter-steer to catch the slide
+				car.bot_steer = -car.drift_dir
 		car.bot_throttle = 1.0 if car.speed < vt else 0.0
 		car.bot_brake = clampf((car.speed - vt) * 0.3, 0.0, 1.0)
 		car.physics_step(dt)

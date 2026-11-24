@@ -14,6 +14,7 @@ var car: PlayerCar
 var rival: RivalCar
 var cam: ChaseCamera
 var hud: Hud
+var tutorial: Tutorial
 var audio: EngineAudio
 var state := State.COUNTDOWN
 var countdown := 3.5
@@ -61,6 +62,10 @@ func _ready() -> void:
 	add_child(hud)
 	hud.build(self)
 	hud.cup.visible = dawn or mode == Game.Mode.TIME_ATTACK
+	if mode == Game.Mode.TUTORIAL:
+		tutorial = Tutorial.new()
+		add_child(tutorial)
+		tutorial.build(self)
 
 	Music.now_playing.connect(func(title): hud.show_popup("♪ " + title, Color(0.7, 0.85, 1.0)))
 	if Music.in_menu:
@@ -148,6 +153,8 @@ func _physics_process(dt: float) -> void:
 				get_tree().create_timer(0.8).timeout.connect(func(): if state == State.RACING: hud.set_center(""))
 		State.RACING:
 			race_time += dt
+			if tutorial:
+				tutorial.update(dt)
 			if car.s > track.finish_s * 0.82:
 				Music.set_climax(true)
 		State.FINISHED:
@@ -218,9 +225,10 @@ func _resolve_contact() -> void:
 					_lose("YOU RAMMED %s - DISQUALIFIED" % rival.info.name.to_upper())
 					return
 		else:
-			# they ran into you
-			impact = maxf(-closing, 0.0) * 0.5 + 0.8
-			rival.v = minf(rival.v, car.vel.dot(d2))
+			# they touched you from behind: their fault, they lose the time
+			rival.v = minf(rival.v, car.vel.dot(d2) - 0.5)
+			rival.wobble = 0.8
+			return
 	_contact(impact)
 
 
@@ -238,6 +246,11 @@ func _check_finish() -> void:
 	if car.s < track.finish_s:
 		return
 	state = State.FINISHED
+	if tutorial:
+		hud.set_center("PRACTICE DONE", Color(0.5, 1, 0.6))
+		hud.show_result("Drift School: %d of %d lessons\nDrift score  %d\n\n[R] Run it again      [Enter] Menu" % [
+			mini(tutorial.step, Tutorial.STEPS.size() - 1), Tutorial.STEPS.size() - 1, car.score])
+		return
 	var lines: Array[String] = []
 	var title := "FINISH"
 	var color := Color.WHITE
