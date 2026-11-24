@@ -6,10 +6,11 @@ render_mode cull_disabled, depth_prepass_alpha;
 uniform sampler2D leaves : source_color, filter_linear_mipmap_anisotropic;
 uniform vec3 tint : source_color = vec3(0.75, 0.9, 0.7);
 uniform float brightness = 1.0;
+uniform float center_y = 4.0;
 
 void vertex() {
 	// rounded normals so a tree shades like one volume, not like flat cards
-	NORMAL = normalize(mix(NORMAL, normalize(VERTEX + vec3(0.0, -4.0, 0.0)), 0.75));
+	NORMAL = normalize(mix(NORMAL, normalize(VERTEX - vec3(0.0, center_y, 0.0)), 0.75));
 }
 
 void fragment() {

@@ -517,62 +517,112 @@ func _build_markings() -> void:
 
 
 func _build_guardrails() -> void:
-	# Japanese W-beam: corrugated steel strip on round posts, painted white
+	# Japanese guard rail: a white-painted corrugated steel beam (two waves),
+	# bolted through spacer blocks to round posts every two metres.
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var prof := [[0.0, 0.42], [0.06, 0.49], [0.02, 0.56], [0.06, 0.63], [0.0, 0.70], [-0.02, 0.70], [-0.02, 0.42]]
+	# beam cross-section (out from the posts toward the road, height): smooth double wave
+	var prof: Array = []
+	var segs := 16
+	for k in segs + 1:
+		var t := float(k) / segs
+		var wave := 0.5 - 0.5 * cos(t * TAU * 2.0)          # two crests
+		prof.append([0.035 + 0.05 * wave, lerpf(0.42, 0.74, t)])
+	var thick := 0.012
 	for side: float in [-1.0, 1.0]:
 		for i in range(1, P.size()):
 			if not (has_rail(i, side) and has_rail(i - 1, side)):
 				continue
-			for k in prof.size():
-				var k2 := (k + 1) % prof.size()
-				var lat_a: float = side * (rail - prof[k][0])
-				var lat_b: float = side * (rail - prof[k2][0])
-				var a0: Vector3 = P[i - 1] + R[i - 1] * lat_a + Vector3.UP * prof[k][1]
-				var a1: Vector3 = P[i - 1] + R[i - 1] * lat_b + Vector3.UP * prof[k2][1]
-				var b0: Vector3 = P[i] + R[i] * lat_a + Vector3.UP * prof[k][1]
-				var b1: Vector3 = P[i] + R[i] * lat_b + Vector3.UP * prof[k2][1]
-				var e := Vector2(prof[k2][0] - prof[k][0], prof[k2][1] - prof[k][1])
-				var nl := Vector2(e.y, -e.x).normalized()
-				var nrm: Vector3 = (-R[i] * side * nl.x + Vector3.UP * nl.y).normalized()
-				st.set_normal(nrm)
-				st.add_vertex(a0); st.add_vertex(b0); st.add_vertex(a1)
-				st.add_vertex(a1); st.add_vertex(b0); st.add_vertex(b1)
-	var rail_mat := _mat(Color(0.82, 0.83, 0.84), 0.3)
-	rail_mat.metallic = 0.5
+			var v0 := S[i - 1] / 1.5
+			var v1 := S[i] / 1.5
+			for face: float in [1.0, -1.0]:           # road face, then back face
+				for k in segs:
+					var pa: Array = prof[k]
+					var pb: Array = prof[k + 1]
+					var off := 0.0 if face > 0.0 else thick
+					var lat_a: float = side * (rail - pa[0] + off)
+					var lat_b: float = side * (rail - pb[0] + off)
+					var a0: Vector3 = P[i - 1] + R[i - 1] * lat_a + Vector3.UP * pa[1]
+					var a1: Vector3 = P[i - 1] + R[i - 1] * lat_b + Vector3.UP * pb[1]
+					var b0: Vector3 = P[i] + R[i] * lat_a + Vector3.UP * pa[1]
+					var b1: Vector3 = P[i] + R[i] * lat_b + Vector3.UP * pb[1]
+					# smooth normals from the neighbouring profile points
+					var na := _rail_normal(prof, k, side, i) * face
+					var nb := _rail_normal(prof, k + 1, side, i) * face
+					var quad := [[a0, na, Vector2(float(k) / segs, v0)], [b0, na, Vector2(float(k) / segs, v1)],
+						[b1, nb, Vector2(float(k + 1) / segs, v1)], [a1, nb, Vector2(float(k + 1) / segs, v0)]]
+					var order := [0, 1, 3, 3, 1, 2] if face * side > 0.0 else [0, 3, 1, 3, 2, 1]
+					for idx in order:
+						st.set_normal(quad[idx][1])
+						st.set_uv(quad[idx][2])
+						st.add_vertex(quad[idx][0])
+	var rail_mat := Mats.pbr("metal", 1.0, Color(0.92, 0.93, 0.94), 0.75)
+	rail_mat.metallic = 0.25
+	rail_mat.normal_scale = 0.35
 	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	st.set_material(rail_mat)
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	add_child(mi)
-	# posts and reflectors
+	# posts, spacer blocks, bolts and reflectors
 	var posts: Array[Transform3D] = []
+	var blocks: Array[Transform3D] = []
+	var bolts: Array[Transform3D] = []
 	var reflectors: Array[Transform3D] = []
 	var next_s := 0.0
+	var count := 0
 	for i in P.size():
 		if S[i] < next_s:
 			continue
-		next_s = S[i] + 4.0
+		next_s = S[i] + 2.0
+		count += 1
 		for side: float in [-1.0, 1.0]:
 			if not has_rail(i, side):
 				continue
-			var p: Vector3 = P[i] + R[i] * (side * (rail + 0.08))
 			var basis := Basis.looking_at(D[i], Vector3.UP)
-			posts.append(Transform3D(basis, p + Vector3.UP * 0.2))
-			if int(S[i] / 4.0) % 3 == 0:
-				reflectors.append(Transform3D(basis, P[i] + R[i] * (side * (rail - 0.07)) + Vector3.UP * 0.56))
+			var out: Vector3 = R[i] * side
+			posts.append(Transform3D(basis, P[i] + out * (rail + 0.1) + Vector3.UP * 0.3))
+			blocks.append(Transform3D(basis, P[i] + out * (rail + 0.03) + Vector3.UP * 0.58))
+			var bolt_b := Basis.looking_at(-out, Vector3.UP) * Basis(Vector3.RIGHT, PI / 2)
+			bolts.append(Transform3D(bolt_b, P[i] + out * (rail - 0.04) + Vector3.UP * 0.58))
+			if count % 4 == 0:
+				reflectors.append(Transform3D(bolt_b, P[i] + out * (rail - 0.095) + Vector3.UP * 0.58 + D[i] * 0.3))
 	var post := CylinderMesh.new()
-	post.top_radius = 0.07
-	post.bottom_radius = 0.07
+	post.top_radius = 0.057
+	post.bottom_radius = 0.057
 	post.height = 1.1
-	post.radial_segments = 6
-	add_child(_multimesh(post, posts, _mat(Color(0.75, 0.75, 0.76), 0.4)))
-	var refl_mat := _mat(Color(1.0, 0.6, 0.1))
+	post.radial_segments = 12
+	var post_mat := Mats.pbr("metal", 1.0, Color(0.9, 0.9, 0.91), 0.8)
+	post_mat.metallic = 0.25
+	post_mat.normal_scale = 0.3
+	add_child(_multimesh(post, posts, post_mat))
+	add_child(_multimesh(_box(Vector3(0.09, 0.2, 0.14)), blocks, post_mat))
+	var bolt := CylinderMesh.new()
+	bolt.top_radius = 0.014
+	bolt.bottom_radius = 0.014
+	bolt.height = 0.02
+	bolt.radial_segments = 6
+	var bolt_mat := _mat(Color(0.55, 0.55, 0.57), 0.35)
+	bolt_mat.metallic = 0.9
+	add_child(_multimesh(bolt, bolts, bolt_mat))
+	var refl := CylinderMesh.new()
+	refl.top_radius = 0.035
+	refl.bottom_radius = 0.035
+	refl.height = 0.012
+	refl.radial_segments = 16
+	var refl_mat := _mat(Color(1.0, 0.6, 0.1), 0.2)
 	refl_mat.emission_enabled = true
 	refl_mat.emission = Color(1.0, 0.55, 0.1)
 	refl_mat.emission_energy_multiplier = 1.6
-	add_child(_multimesh(_box(Vector3(0.08, 0.08, 0.04)), reflectors, refl_mat))
+	add_child(_multimesh(refl, reflectors, refl_mat))
+
+
+func _rail_normal(prof: Array, k: int, side: float, i: int) -> Vector3:
+	var a: Array = prof[maxi(k - 1, 0)]
+	var b: Array = prof[mini(k + 1, prof.size() - 1)]
+	var e := Vector2(float(b[0]) - float(a[0]), float(b[1]) - float(a[1]))
+	var nl := Vector2(e.y, -e.x).normalized()
+	return (-R[i] * side * nl.x + Vector3.UP * nl.y).normalized()
 
 
 func _box(size: Vector3) -> BoxMesh:

@@ -127,7 +127,9 @@ func _plant_pending() -> void:
 			keep_c.append(cols[k] if cols.size() > k else Color.WHITE)
 			# later trunks and bushes keep clear of this one
 			_keep_out(o, own * sc)
+		_cast_shadows = Mats.hq() and clear > 1.0      # trees cast real shadows
 		_mm_chunked(mesh, keep_x, null, keep_c, job[3], job[4])
+		_cast_shadows = false
 
 
 func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
@@ -157,7 +159,7 @@ func _mm(mesh: Mesh, xf: Array, mat: Material, colors: Array = [], vis_end := 0.
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	mmi.material_override = mat
-	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if _cast_shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if vis_end > 0.0:
 		mmi.visibility_range_end = vis_end
 	_add(mmi)
@@ -272,6 +274,152 @@ func _card_bush(seed_v: int) -> ArrayMesh:
 
 
 var _tree_meta := {}
+var _leaf_mats := {}
+var _cast_shadows := false
+
+
+func _leaf_material(tex_name: String, center_y: float) -> ShaderMaterial:
+	var key := "%s_%d" % [tex_name, int(center_y)]
+	if not _leaf_mats.has(key):
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/foliage_card.gdshader")
+		m.set_shader_parameter("leaves", load("res://assets/trees/%s.png" % tex_name))
+		m.set_shader_parameter("tint", Vector3(1.0, 1.0, 1.0))
+		m.set_shader_parameter("brightness", 0.9)
+		m.set_shader_parameter("center_y", center_y)
+		_leaf_mats[key] = m
+	return _leaf_mats[key]
+
+
+## Tapered round limb from a to b (trunk or branch), with bark UVs.
+func _limb(st: SurfaceTool, a: Vector3, b: Vector3, r0: float, r1: float, sides := 7, v0 := 0.0) -> void:
+	var axis := (b - a).normalized()
+	var ref := Vector3.RIGHT if absf(axis.dot(Vector3.RIGHT)) < 0.9 else Vector3.FORWARD
+	var u := axis.cross(ref).normalized()
+	var w := axis.cross(u)
+	var len := a.distance_to(b)
+	for k in sides:
+		var a0 := TAU * k / sides
+		var a1 := TAU * (k + 1) / sides
+		var n0 := u * cos(a0) + w * sin(a0)
+		var n1 := u * cos(a1) + w * sin(a1)
+		var quad := [[a + n0 * r0, n0, Vector2(float(k) / sides * 2.0, v0)], [a + n1 * r0, n1, Vector2(float(k + 1) / sides * 2.0, v0)],
+			[b + n1 * r1, n1, Vector2(float(k + 1) / sides * 2.0, v0 + len * 0.5)], [b + n0 * r1, n0, Vector2(float(k) / sides * 2.0, v0 + len * 0.5)]]
+		for idx in [0, 2, 1, 0, 3, 2]:
+			st.set_normal(quad[idx][1])
+			st.set_tangent(Plane(axis, 1.0))
+			st.set_uv(quad[idx][2])
+			st.add_vertex(quad[idx][0])
+
+
+## One foliage card: a quad with its base at `root`, growing along `along`, facing `face`.
+func _leaf_quad(st: SurfaceTool, root: Vector3, along: Vector3, side: Vector3, length: float, width: float) -> void:
+	var v := [root - side * width * 0.5, root + side * width * 0.5, root + side * width * 0.5 + along * length, root - side * width * 0.5 + along * length]
+	var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+	st.set_normal(side.cross(along).normalized())
+	for idx in [0, 2, 1, 0, 3, 2]:
+		st.set_uv(uv[idx])
+		st.add_vertex(v[idx])
+
+
+## A real 3D tree: modelled trunk and branches in scanned bark, carrying many
+## foliage clusters cut from scanned trees, spread through the crown in depth.
+func _tree3d(kind: String, seed_v: int) -> ArrayMesh:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	var mesh := ArrayMesh.new()
+	var bark := SurfaceTool.new()
+	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var leaf_st := {}
+	var add_leaf := func(tex: String, root: Vector3, along: Vector3, side: Vector3, length: float, width: float) -> void:
+		if not leaf_st.has(tex):
+			var lt := SurfaceTool.new()
+			lt.begin(Mesh.PRIMITIVE_TRIANGLES)
+			leaf_st[tex] = lt
+		_leaf_quad(leaf_st[tex], root, along, side, length, width)
+	var center_y := 5.0
+	if kind == "fir":
+		var h := 13.0
+		center_y = 7.0
+		# straight tapering trunk in three pieces
+		var p0 := Vector3.ZERO
+		for k in 3:
+			var p1 := Vector3(r.randf_range(-0.05, 0.05), h * (k + 1) / 3.0, r.randf_range(-0.05, 0.05))
+			_limb(bark, p0, p1, lerpf(0.3, 0.03, k / 3.0), lerpf(0.3, 0.03, (k + 1) / 3.0), 8, p0.y * 0.5)
+			p0 = p1
+		# whorls of drooping boughs, long at the bottom, short at the top
+		var y := 2.4
+		while y < h - 0.3:
+			var t := (y - 2.4) / (h - 2.4)
+			var length := lerpf(3.4, 0.5, pow(t, 0.8)) * r.randf_range(0.85, 1.1)
+			var count := 8 if t < 0.7 else 5
+			var twist := r.randf() * TAU
+			for k in count:
+				var ang := twist + TAU * k / count + r.randf_range(-0.2, 0.2)
+				var out := Vector3(cos(ang), 0, sin(ang))
+				var along := (out + Vector3.DOWN * r.randf_range(0.12, 0.35)).normalized()
+				var side := along.cross(Vector3.UP).normalized()
+				var root := Vector3(0, y + r.randf_range(-0.2, 0.2), 0)
+				var tex := "bough_%d" % r.randi_range(0, 1)
+				# a flat bough plus an upright one through it, so it has body from every angle
+				add_leaf.call(tex, root, along, side, length, length * 0.75)
+				add_leaf.call(tex, root, along, side.cross(along).normalized(), length, length * 0.5)
+			y += lerpf(0.6, 0.4, t)
+		# leader at the very top
+		add_leaf.call("bough_0", Vector3(0, h - 1.4, 0), Vector3.UP, Vector3.RIGHT, 1.6, 1.0)
+		add_leaf.call("bough_0", Vector3(0, h - 1.4, 0), Vector3.UP, Vector3.BACK, 1.6, 1.0)
+	else:
+		var slender := kind == "slender"
+		var trunk_h := 6.5 if slender else 4.2
+		var crown := 2.0 if slender else 3.2
+		center_y = trunk_h + 1.0
+		# trunk that wanders a little as it climbs
+		var pts: Array[Vector3] = [Vector3.ZERO]
+		for k in range(1, 5):
+			pts.append(Vector3(r.randf_range(-0.25, 0.25) * k * 0.4, trunk_h * k / 4.0, r.randf_range(-0.25, 0.25) * k * 0.4))
+		for k in 4:
+			_limb(bark, pts[k], pts[k + 1], lerpf(0.3, 0.15, k / 4.0), lerpf(0.3, 0.15, (k + 1) / 4.0), 8, pts[k].y * 0.5)
+		var tips: Array[Vector3] = []
+		var n_branch := 5 if slender else 7
+		for k in n_branch:
+			var t := r.randf_range(0.5, 1.0)
+			var base := pts[2].lerp(pts[4], (t - 0.5) * 2.0)
+			var ang := TAU * k / n_branch + r.randf_range(-0.4, 0.4)
+			var dir := (Vector3(cos(ang), 0, sin(ang)) + Vector3.UP * r.randf_range(0.35, 0.9)).normalized()
+			var length := crown * r.randf_range(0.7, 1.1)
+			var mid := base + dir * length * 0.55 + Vector3.UP * 0.15
+			var tip := mid + (dir + Vector3.UP * 0.25).normalized() * length * 0.45
+			_limb(bark, base, mid, 0.11, 0.07, 5)
+			_limb(bark, mid, tip, 0.07, 0.025, 5)
+			tips.append(mid)
+			tips.append(tip)
+			# secondary twigs
+			for j in 2:
+				var sd := (dir.cross(Vector3.UP) * (1.0 if j == 0 else -1.0) + dir * 0.6 + Vector3.UP * 0.3).normalized()
+				var tw := mid + sd * length * 0.4
+				_limb(bark, mid, tw, 0.045, 0.015, 4)
+				tips.append(tw)
+		tips.append(pts[4] + Vector3.UP * crown * 0.5)
+		tips.append(pts[4] + Vector3.UP * crown * 0.15)
+		# a foliage cluster at every twig end: two or three crossed cards, each a different scan
+		for tip in tips:
+			var size := (2.0 if slender else 2.6) * r.randf_range(0.8, 1.25)
+			var cards := 3
+			for j in cards:
+				var yaw := r.randf() * TAU
+				var side := Vector3(cos(yaw), 0, sin(yaw))
+				var up := (Vector3.UP + Vector3(r.randf_range(-0.35, 0.35), 0, r.randf_range(-0.35, 0.35))).normalized()
+				if j == 2:
+					# one card lying flatter fills the crown seen from below and above
+					up = (side.cross(Vector3.UP) + Vector3.UP * 0.35).normalized()
+				add_leaf.call("cluster_%d" % r.randi_range(0, 3), tip - up * size * 0.45, up, side, size * 0.9, size)
+	bark.set_material(trunk_mat)
+	bark.commit(mesh)
+	for tex in leaf_st:
+		var lt: SurfaceTool = leaf_st[tex]
+		lt.set_material(_leaf_material(tex, center_y))
+		lt.commit(mesh)
+	return mesh
 
 
 ## A tree built from photo-real cut-outs of a scanned tree (baked from Poly
@@ -513,7 +661,7 @@ func _fence_texture() -> ImageTexture:
 func _trees() -> void:
 	var meshes := [_card_tree(1), _card_tree(2), _card_cedar()]
 	if ResourceLoader.exists("res://assets/trees/fir_0.png"):
-		meshes = [_photo_tree("broadleaf", 8.5), _photo_tree("slender", 10.0), _photo_tree("fir", 13.0)]
+		meshes = [_tree3d("broadleaf", 11), _tree3d("slender", 12), _tree3d("fir", 13)]
 	var sets := [[], [], []]
 	var cols := [[], [], []]
 	for k in range(0, t.tree_data.size(), 4):
