@@ -475,12 +475,6 @@ func _build_campaign() -> void:
 	var brow := HBoxContainer.new()
 	brow.add_theme_constant_override("separation", 12)
 	right.add_child(brow)
-	var change := _button("CHANGE CAR", 20, 64)
-	change.custom_minimum_size.x = 220
-	change.pressed.connect(func():
-		_cars_return = "campaign"
-		_show("cars"))
-	brow.add_child(change)
 	stage_go = _big_button("RACE   ▶")
 	stage_go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stage_go.pressed.connect(_go)
@@ -727,7 +721,7 @@ func _refresh_stage() -> void:
 	stage_info.text = "[b]%d. %s[/b]\n[color=#9ab]%s  ·  %.1f km  ·  %d hairpins[/color]\n\n%s\n\nRival: [color=#ffd36a]%s[/color]%s\nCar: [color=#ffd36a]%s[/color]  (%d hp · %d kg · %s)\n\nYou drive: %s%s" % [
 		i + 1, st.title, c.name, t.length / 1000.0, t.hairpins, st.intro, st.rival.name,
 		("  ·  " + team) if team != "local" and team != "unknown" else "",
-		rc.name, rc.hp, rc.kg, rc.drive, Cars.get_car(Game.selected_car).name,
+		rc.name, rc.hp, rc.kg, rc.drive, Cars.get_car(Campaign.HERO_CAR).name + "  (the hero's car, always)",
 		"\n\n[color=#e88]Locked: win the stage before this one.[/color]" if locked else ""]
 	stage_go.disabled = locked
 	t.free()

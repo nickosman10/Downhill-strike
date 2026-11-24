@@ -3,12 +3,13 @@ extends RefCounted
 ## Story mode: one-on-one downhill battles in order, the way a season of
 ## street racing plays out. The same mountain comes back with new challengers,
 ## the cars get faster, and every win puts the loser's car in your garage.
-## All drivers and teams are original characters.
+## All drivers and teams are original characters. In the campaign you are the
+## hero, and the hero always drives the Eight-Six.
 ##
 ## course: index into Courses.all()
 
 const STAGES := [
-	{"course": 0, "title": "The Delivery Boy", "rival": {"name": "Kenta Wada", "car": "ae85", "skill": 0.88, "team": "local"},
+	{"course": 0, "title": "Gas Station Rival", "rival": {"name": "Kenta Wada", "car": "ae85", "skill": 0.88, "team": "local"},
 		"intro": "A kid from the gas station says nobody can beat him down Haruna in his Levin. Prove him wrong."},
 	{"course": 0, "title": "Speed Club Challenge", "rival": {"name": "Shota Hirano", "car": "s13", "skill": 0.9, "team": "Touge Speed Club"},
 		"intro": "The local club's number two heard about you. Turbo against a light car: drift where he can't."},
@@ -34,9 +35,12 @@ const STAGES := [
 		"intro": "Hakone's staircase of hairpins against a rotary that never lifts."},
 	{"course": 9, "title": "Purple Storm", "rival": {"name": "Riku Onodera", "car": "r34", "skill": 1.06, "team": "Purple Storm"},
 		"intro": "The fastest car on the coast. Six hundred horsepower down the Tsubaki Line."},
-	{"course": 0, "title": "Legend of Haruna", "rival": {"name": "Haruto Inaba", "car": "ae86", "skill": 1.08, "team": "unknown"},
-		"intro": "Back home. Someone in an old black-and-white hatchback has been seen at dawn, faster than anyone. Final battle."},
+	{"course": 0, "title": "Legend of Haruna", "rival": {"name": "Haruto Inaba", "car": "s2000", "skill": 1.08, "team": "unknown"},
+		"intro": "Back home. A silver roadster has been taking apart every record on Haruna, and its driver wants the last one: yours. Final battle."},
 ]
+
+
+const HERO_CAR := "ae86"
 
 
 static func stage(i: int) -> Dictionary:

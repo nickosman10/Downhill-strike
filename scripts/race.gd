@@ -38,7 +38,9 @@ func _ready() -> void:
 	car = PlayerCar.new()
 	add_child(car)
 	var battle := Game.is_battle(mode)
-	car.setup(track, track.start_s - 6.0, -track.hw * 0.45 if battle else 0.0)
+	# campaign: you are the hero, in the hero's car
+	var car_id := Campaign.HERO_CAR if mode == Game.Mode.CAMPAIGN else ""
+	car.setup(track, track.start_s - 6.0, -track.hw * 0.45 if battle else 0.0, car_id)
 	car.popup.connect(_on_popup)
 	car.crashed.connect(_on_crash)
 	if dawn:
