@@ -271,6 +271,40 @@ func _card_bush(seed_v: int) -> ArrayMesh:
 	return st.commit()
 
 
+var _tree_meta := {}
+
+
+## A tree built from photo-real cut-outs of a scanned tree (baked from Poly
+## Haven's CC0 scans): two crossed cards that meet on the trunk, lit by the scene.
+func _photo_tree(kind: String, height: float) -> ArrayMesh:
+	if _tree_meta.is_empty():
+		_tree_meta = JSON.parse_string(FileAccess.get_file_as_string("res://assets/trees/trees.json"))
+	var mesh := ArrayMesh.new()
+	for k in 2:
+		var info: Dictionary = _tree_meta["%s_%d" % [kind, k]]
+		var w: float = height * float(info.aspect)
+		var tx: float = float(info.trunk)
+		var yaw := PI * 0.5 * k
+		var right := Vector3(cos(yaw), 0, sin(yaw))
+		var left := -right * w * tx
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.set_normal(right.cross(Vector3.UP).normalized())
+		var v := [left, left + right * w, left + right * w + Vector3.UP * height, left + Vector3.UP * height]
+		var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+		for idx in [0, 2, 1, 0, 3, 2]:
+			st.set_uv(uv[idx])
+			st.add_vertex(v[idx])
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/foliage_card.gdshader")
+		m.set_shader_parameter("leaves", load("res://assets/trees/%s_%d.png" % [kind, k]))
+		m.set_shader_parameter("tint", Vector3(1.0, 1.0, 1.0))
+		m.set_shader_parameter("brightness", 0.9)
+		st.set_material(m)
+		st.commit(mesh)
+	return mesh
+
+
 func _tree_mesh(seed_v: int) -> ArrayMesh:
 	# deciduous: trunk + clustered canopy
 	var st := SurfaceTool.new()
@@ -478,6 +512,8 @@ func _fence_texture() -> ImageTexture:
 
 func _trees() -> void:
 	var meshes := [_card_tree(1), _card_tree(2), _card_cedar()]
+	if ResourceLoader.exists("res://assets/trees/fir_0.png"):
+		meshes = [_photo_tree("broadleaf", 8.5), _photo_tree("slender", 10.0), _photo_tree("fir", 13.0)]
 	var sets := [[], [], []]
 	var cols := [[], [], []]
 	for k in range(0, t.tree_data.size(), 4):
