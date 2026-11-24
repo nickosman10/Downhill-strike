@@ -20,3 +20,4 @@ tools/osm/*.jpg
 
 build/
 __pycache__/
+screenshots/video/
