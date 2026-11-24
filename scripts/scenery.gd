@@ -32,10 +32,8 @@ func build(track: Track) -> void:
 	cedar_mat = ShaderMaterial.new()
 	cedar_mat.shader = load("res://shaders/foliage_card.gdshader")
 	cedar_mat.set_shader_parameter("leaves", load("res://assets/textures/cedar.png"))
-	cedar_mat.set_shader_parameter("brightness", 0.55)
-	trunk_mat = StandardMaterial3D.new()
-	trunk_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	trunk_mat.albedo_color = Color(0.05, 0.05, 0.07)
+	cedar_mat.set_shader_parameter("brightness", 0.9)
+	trunk_mat = Mats.pbr("bark", 1.0, Color(0.75, 0.7, 0.65))
 	_walls()
 	t.walls = wall_sides
 	_tunnels()
@@ -313,11 +311,7 @@ func _walls() -> void:
 	# concrete retaining wall wherever the hillside rises above the road
 	# like the anime's mountain passes: a tall stone-masonry wall rising
 	# straight from the road edge (plain concrete where the real road has it)
-	var concrete := _mat(Color(0.9, 0.9, 0.9), 0.95)
-	var tex: Texture2D = load("res://assets/textures/concrete.png") if t.style.get("concrete_walls", false) \
-		else load("res://assets/textures/masonry.png")
-	concrete.albedo_texture = tex
-	concrete.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var concrete := Mats.pbr("concrete" if t.style.get("concrete_walls", false) else "masonry", 1.0)
 	concrete.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var fence_mat := _mat(Color(0.55, 0.6, 0.7), 0.6)
 	fence_mat.albedo_texture = _fence_texture()
@@ -329,12 +323,7 @@ func _walls() -> void:
 	wst.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var sst := SurfaceTool.new()       # asphalt shoulder between the road edge and the wall
 	sst.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var shoulder := _mat(Color(0.62, 0.63, 0.68), 1.0)
-	shoulder.albedo_texture = load("res://assets/textures/asphalt_albedo.png")
-	shoulder.normal_enabled = true
-	shoulder.normal_texture = load("res://assets/textures/asphalt_normal.png")
-	shoulder.roughness_texture = load("res://assets/textures/asphalt_rough.png")
-	shoulder.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var shoulder := Mats.pbr("asphalt", 2.0, Color(0.55, 0.55, 0.57), 0.7)
 	shoulder.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var fst := SurfaceTool.new()
 	fst.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1105,9 +1094,7 @@ func _curve_mirror(base: Vector3, look: Vector3, orange: Material, mirror_mat: M
 ## with the grass bank behind it, like the night corners in the anime's
 ## background paintings. One continuous strip per run so it reads smooth.
 func _curbs() -> void:
-	var curb := _mat(Color(0.82, 0.82, 0.8), 0.9)
-	curb.albedo_texture = load("res://assets/textures/concrete.png")
-	curb.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var curb := Mats.pbr("concrete", 1.0, Color(0.9, 0.9, 0.88))
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# section across the curb (lateral offset from the rail line, height)
@@ -1594,9 +1581,7 @@ func _facade_mat(wall: Color) -> ShaderMaterial:
 func _roof_mat(c: Color) -> StandardMaterial3D:
 	if _roof_tex == null:
 		_roof_tex = load("res://assets/textures/roof_tiles.png")
-	var m := _mat(c * 3.0, 0.6)
-	m.albedo_texture = _roof_tex
-	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var m := Mats.pbr("roof", 1.0, (c * 3.0).lerp(Color.WHITE, 0.5))
 	return m
 
 
@@ -1685,8 +1670,7 @@ func _tunnels() -> void:
 	var tiles := _mat(Color(0.8, 0.8, 0.78), 0.35)
 	tiles.albedo_texture = ImageTexture.create_from_image(tile_img)
 	tiles.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var arch := _mat(Color(0.42, 0.42, 0.42), 0.95)
-	arch.albedo_texture = load("res://assets/textures/concrete.png")
+	var arch := Mats.pbr("concrete", 1.0, Color(0.6, 0.6, 0.6))
 	arch.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var curb_mat := _mat(Color(0.58, 0.58, 0.56), 0.9)
 	curb_mat.albedo_texture = load("res://assets/textures/concrete.png")

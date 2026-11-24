@@ -130,10 +130,69 @@ static func build_environment(parent: Node, dawn: bool) -> void:
 	env.adjustment_enabled = true
 	env.adjustment_contrast = 1.08
 	env.adjustment_saturation = 1.05
+	if Mats.hq():
+		_high_quality(env, light, dawn)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	parent.add_child(we)
 	parent.add_child(light)
+
+
+## The full-fat look (desktop renderer only): real night sky lighting the
+## scene, bounced light, reflections on the damp road, contact shadows and
+## light shafts through the mist.
+static func _high_quality(env: Environment, light: DirectionalLight3D, dawn: bool) -> void:
+	if not dawn:
+		var pano := PanoramaSkyMaterial.new()
+		pano.panorama = load("res://assets/pbr/night_sky.hdr")
+		pano.energy_multiplier = 0.9
+		var sky := Sky.new()
+		sky.sky_material = pano
+		sky.radiance_size = Sky.RADIANCE_SIZE_256
+		env.sky = sky
+		env.sky_rotation = Vector3(0, deg_to_rad(40.0), 0)
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		env.ambient_light_sky_contribution = 1.0
+		env.ambient_light_energy = 1.6
+		env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+		light.light_color = Color(0.62, 0.72, 1.0)
+		light.light_energy = 0.5
+		env.fog_light_color = Color(0.03, 0.045, 0.08)
+		env.fog_density = 0.0006
+	light.shadow_enabled = true
+	light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	light.directional_shadow_max_distance = 220.0
+	light.shadow_blur = 1.5
+	light.light_angular_distance = 0.6
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 1.35
+	env.tonemap_white = 6.0
+	env.ssr_enabled = true
+	env.ssr_max_steps = 96
+	env.ssr_fade_in = 0.1
+	env.ssr_fade_out = 2.0
+	env.ssao_enabled = true
+	env.ssao_radius = 1.6
+	env.ssao_intensity = 2.2
+	env.ssil_enabled = true
+	env.ssil_intensity = 1.2
+	env.sdfgi_enabled = true
+	env.sdfgi_cascades = 4
+	env.sdfgi_min_cell_size = 0.4
+	env.sdfgi_energy = 1.0
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.006
+	env.volumetric_fog_albedo = Color(0.55, 0.62, 0.8)
+	env.volumetric_fog_length = 120.0
+	env.volumetric_fog_anisotropy = 0.6
+	env.volumetric_fog_ambient_inject = 0.05
+	env.glow_enabled = true
+	env.glow_intensity = 0.7
+	env.glow_bloom = 0.08
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.1
+	env.adjustment_saturation = 1.1
 
 
 func _physics_process(dt: float) -> void:

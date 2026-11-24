@@ -1,17 +1,23 @@
 shader_type spatial;
-render_mode unshaded, cull_disabled;
+render_mode cull_disabled, depth_prepass_alpha;
 
-// Leaf / needle cards for trees and bushes: a painted leaf texture cut out by
-// its alpha, graded to moonlight, lighter at the top of the canopy.
+// Leaf / needle cards, lit by the scene: moonlight, headlights and street
+// lamps all catch the foliage, and light glows through the leaves.
 uniform sampler2D leaves : source_color, filter_linear_mipmap_anisotropic;
-uniform vec3 tint : source_color = vec3(0.42, 0.56, 0.86);
-uniform float brightness = 0.62;
+uniform vec3 tint : source_color = vec3(0.75, 0.9, 0.7);
+uniform float brightness = 1.0;
+
+void vertex() {
+	// rounded normals so a tree shades like one volume, not like flat cards
+	NORMAL = normalize(mix(NORMAL, normalize(VERTEX + vec3(0.0, -4.0, 0.0)), 0.75));
+}
 
 void fragment() {
 	vec4 t = texture(leaves, UV);
-	if (t.a < 0.45) {
-		discard;
-	}
-	float top = mix(0.75, 1.15, 1.0 - UV.y);
-	ALBEDO = t.rgb * tint * brightness * top * COLOR.rgb;
+	ALBEDO = t.rgb * tint * brightness * COLOR.rgb;
+	ALPHA = t.a;
+	ALPHA_SCISSOR_THRESHOLD = 0.45;
+	ROUGHNESS = 0.75;
+	SPECULAR = 0.25;
+	BACKLIGHT = vec3(0.25, 0.4, 0.15);
 }

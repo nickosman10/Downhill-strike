@@ -415,22 +415,13 @@ func _mat(color: Color, rough := 0.9) -> StandardMaterial3D:
 
 func _build_road_mesh() -> void:
 	# real tarmac: aggregate, cracks, sealed seams and repair patches (6 m tile)
-	var asphalt := _mat(Color(0.62, 0.63, 0.68), 1.0)
-	asphalt.albedo_texture = load("res://assets/textures/asphalt_albedo.png")
-	asphalt.normal_enabled = true
-	asphalt.normal_texture = load("res://assets/textures/asphalt_normal.png")
-	asphalt.normal_scale = 0.9
-	asphalt.roughness_texture = load("res://assets/textures/asphalt_rough.png")
-	asphalt.metallic_specular = 0.6
-	asphalt.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	var concrete := _mat(Color(0.7, 0.7, 0.68), 0.85)
-	concrete.albedo_texture = load("res://assets/textures/concrete.png")
-	concrete.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	# scanned tarmac, slightly damp so headlights and lamps streak across it
+	var asphalt := Mats.pbr("asphalt", 2.0, Color(0.55, 0.55, 0.57), 0.7)
+	asphalt.metallic_specular = 0.7
+	var concrete := Mats.pbr("concrete", 2.0, Color(0.8, 0.8, 0.78))
 	var gravel := _mat(Color(0.22, 0.2, 0.17))
 	# grass bank beyond the verge, with the grass/leaf-litter detail texture
-	var grass := _mat(Color(0.5, 0.62, 0.55), 1.0)
-	grass.albedo_texture = load("res://assets/textures/ground_detail.png")
-	grass.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var grass := Mats.pbr("grass", 3.0)
 	# surface id per profile strip (strip k joins profile point k and k+1)
 	var strip_mat := [2, 3, 1, 1, 0, 1, 1, 3, 2]
 	var mats := [asphalt, concrete, gravel, grass]
@@ -822,8 +813,9 @@ func terrain_height(x: float, z: float) -> float:
 func _build_terrain() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
-	mat.set_shader_parameter("ground_tex", load("res://assets/textures/ground_detail.png"))
-	mat.set_shader_parameter("rock_tex", load("res://assets/textures/rock_detail.png"))
+	for pair in [["forest_diff", "forest", "diff"], ["forest_nor", "forest", "nor"], ["forest_rough", "forest", "rough"],
+			["rock_diff", "rock", "diff"], ["rock_nor", "rock", "nor"], ["rock_rough", "rock", "rough"]]:
+		mat.set_shader_parameter(pair[0], Mats.tex(pair[1], pair[2]))
 	mat.set_shader_parameter("canopy_tex", load("res://assets/textures/canopy.png"))
 	if terrain_info.has("aerial"):
 		var tex: Texture2D = load("res://tracks/" + terrain_info.aerial)
