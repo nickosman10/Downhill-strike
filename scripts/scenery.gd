@@ -555,6 +555,8 @@ func _trees() -> void:
 func _bushes() -> void:
 	# dense painted bushes along the verge, thickest on hairpin inner islands
 	var meshes := [_card_bush(11), _card_bush(12)]
+	if ResourceLoader.exists("res://assets/trees/bush_0.png"):
+		meshes = [_photo_tree("bush", 1.9), _photo_tree("fern", 0.75)]
 	var xf := [[], []]
 	var cols := [[], []]
 	var n := t.P.size()

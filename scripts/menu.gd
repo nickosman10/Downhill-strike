@@ -299,6 +299,12 @@ func _build_main() -> void:
 		Game.course_index = 0
 		_go())
 	col.add_child(school)
+	if Mats.hq():
+		var gfx := _button("GRAPHICS: " + Game.QUALITY_NAMES[Game.quality], 22, 54)
+		gfx.pressed.connect(func():
+			Game.set_quality((Game.quality + 1) % 3)
+			gfx.text = "GRAPHICS: " + Game.QUALITY_NAMES[Game.quality])
+		col.add_child(gfx)
 	if not OS.has_feature("web"):
 		var quit := _button("EXIT", 28, 64)
 		quit.pressed.connect(func(): get_tree().quit())

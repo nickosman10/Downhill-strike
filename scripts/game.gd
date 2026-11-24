@@ -11,6 +11,8 @@ var mode: int = Mode.BATTLE
 var records := ConfigFile.new()
 var selected_car := "ae85"
 var campaign_stage := 0
+var quality := 2               # graphics: 0 low, 1 medium, 2 high
+const QUALITY_NAMES := ["LOW", "MEDIUM", "HIGH"]
 var menu_screen := "main"      # which menu screen to come back to after a race
 
 
@@ -18,6 +20,8 @@ func _ready() -> void:
 	_setup_input()
 	records.load(SAVE_PATH)
 	selected_car = records.get_value("garage", "selected", "ae85")
+	quality = records.get_value("video", "quality", 2)
+	apply_quality()
 	if not is_unlocked(selected_car):
 		selected_car = "ae85"
 
@@ -124,6 +128,18 @@ func clear_stage(i: int) -> void:
 
 func is_battle(m: int) -> bool:
 	return m == Mode.BATTLE or m == Mode.CAMPAIGN
+
+
+func set_quality(q: int) -> void:
+	quality = clampi(q, 0, 2)
+	records.set_value("video", "quality", quality)
+	records.save(SAVE_PATH)
+	apply_quality()
+
+
+func apply_quality() -> void:
+	# lower settings render the 3D scene at a lower resolution and upscale it
+	get_viewport().scaling_3d_scale = [0.67, 0.85, 1.0][quality]
 
 
 func select_car(id: String) -> void:

@@ -646,6 +646,29 @@ func _build_glb(scene: PackedScene) -> void:
 	amber.emission = Color(1.0, 0.45, 0.0)
 	amber.emission_energy_multiplier = 0.8
 	var by_name := {"Paint": paint, "Lower": lower, "Glass": glass, "Tail": tail_mat, "Lens": lens_mat, "Amber": amber}
+	if Mats.hq():
+		# showroom-grade surfaces: deep clear-coated paint, real glass, bright metal, rubber
+		paint.metallic = 0.35
+		paint.roughness = 0.32
+		paint.clearcoat = 1.0
+		paint.clearcoat_roughness = 0.04
+		lower.metallic = 0.3
+		lower.roughness = 0.3
+		lower.clearcoat = 1.0
+		lower.clearcoat_roughness = 0.06
+		glass.albedo_color = Color(0.02, 0.03, 0.04, 0.62)
+		glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		glass.roughness = 0.02
+		glass.metallic = 0.0
+		glass.metallic_specular = 1.0
+		glass.rim_enabled = false
+		var chrome := _mat(Color(0.9, 0.9, 0.92), 0.08, 1.0)
+		var rim_lip := _mat(Color(0.85, 0.85, 0.87), 0.1, 1.0)
+		var tire := _mat(Color(0.025, 0.025, 0.027), 0.92)
+		var trim := _mat(Color(0.02, 0.02, 0.022), 0.6)
+		var well := _mat(Color(0.008, 0.008, 0.01), 1.0)
+		by_name.merge({"Chrome": chrome, "RimLip": rim_lip, "Tire": tire, "Trim": trim, "Well": well})
+		tail_mat.emission_energy_multiplier = 2.0
 	var aabb := AABB()
 	var first := true
 	for mi: MeshInstance3D in inst.find_children("*", "MeshInstance3D", true, false):
@@ -702,6 +725,12 @@ func _build_glb(scene: PackedScene) -> void:
 		spot.spot_attenuation = 0.7
 		spot.light_energy = 5.0
 		spot.light_color = Color(1.0, 0.96, 0.85)
+		if Mats.hq():
+			spot.shadow_enabled = true
+			spot.light_energy = 9.0
+			spot.spot_range = 90.0
+			spot.light_volumetric_fog_energy = 2.5
+			spot.light_specular = 1.0
 		add_child(spot)
 		headlights.append(spot)
 		var fl := _flare(Color(1.0, 0.97, 0.9), 0.9)
@@ -802,7 +831,7 @@ func _apply_lights() -> void:
 			popups[i].rotation.x = _popup_angle
 	for h in headlights:
 		h.visible = open > 0.6
-		h.light_energy = 5.0 * open
+		h.light_energy = (9.0 if Mats.hq() else 5.0) * open
 	for g in head_glow:
 		g.visible = open > 0.4
 	if lens_mat:

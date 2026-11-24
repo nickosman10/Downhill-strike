@@ -416,8 +416,13 @@ func _mat(color: Color, rough := 0.9) -> StandardMaterial3D:
 func _build_road_mesh() -> void:
 	# real tarmac: aggregate, cracks, sealed seams and repair patches (6 m tile)
 	# scanned tarmac, slightly damp so headlights and lamps streak across it
-	var asphalt := Mats.pbr("asphalt", 2.0, Color(0.55, 0.55, 0.57), 0.7)
-	asphalt.metallic_specular = 0.7
+	var asphalt: Material = Mats.pbr("asphalt", 2.0, Color(0.55, 0.55, 0.57), 0.7)
+	if Mats.hq():
+		var road := ShaderMaterial.new()
+		road.shader = load("res://shaders/road.gdshader")
+		for k in ["diff", "nor", "rough", "ao"]:
+			road.set_shader_parameter(k, Mats.tex("asphalt", k))
+		asphalt = road
 	var concrete := Mats.pbr("concrete", 2.0, Color(0.8, 0.8, 0.78))
 	var gravel := _mat(Color(0.22, 0.2, 0.17))
 	# grass bank beyond the verge, with the grass/leaf-litter detail texture

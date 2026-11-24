@@ -3,7 +3,7 @@ shader_type sky;
 // Photographed night sky (lights the scene and shows in reflections) with a
 // crisp star field and moon drawn on top, since stars in a photo this size blur away.
 uniform sampler2D pano : source_color, filter_linear, repeat_enable;
-uniform float energy = 0.9;
+uniform float energy = 1.4;
 uniform vec3 moon_dir = vec3(-0.35, 0.55, 0.75);
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }

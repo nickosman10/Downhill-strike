@@ -153,10 +153,10 @@ static func _high_quality(env: Environment, light: DirectionalLight3D, dawn: boo
 		env.sky_rotation = Vector3(0, deg_to_rad(40.0), 0)
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 		env.ambient_light_sky_contribution = 1.0
-		env.ambient_light_energy = 1.6
+		env.ambient_light_energy = 2.0
 		env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 		light.light_color = Color(0.62, 0.72, 1.0)
-		light.light_energy = 0.5
+		light.light_energy = 1.0
 		env.fog_light_color = Color(0.03, 0.045, 0.08)
 		env.fog_density = 0.0006
 	light.shadow_enabled = true
@@ -167,20 +167,26 @@ static func _high_quality(env: Environment, light: DirectionalLight3D, dawn: boo
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 1.35
 	env.tonemap_white = 6.0
-	env.ssr_enabled = true
+	var q: int = 2
+	var game: Node = (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Game")
+	if game:
+		q = game.quality
+	env.ssr_enabled = q >= 1
 	env.ssr_max_steps = 96
 	env.ssr_fade_in = 0.1
 	env.ssr_fade_out = 2.0
 	env.ssao_enabled = true
 	env.ssao_radius = 1.6
 	env.ssao_intensity = 2.2
-	env.ssil_enabled = true
+	env.ssil_enabled = q >= 2
 	env.ssil_intensity = 1.2
-	env.sdfgi_enabled = true
+	env.sdfgi_enabled = q >= 2
 	env.sdfgi_cascades = 4
 	env.sdfgi_min_cell_size = 0.4
 	env.sdfgi_energy = 1.0
-	env.volumetric_fog_enabled = true
+	env.volumetric_fog_enabled = q >= 1
+	light.shadow_enabled = true
+	light.directional_shadow_max_distance = [90.0, 160.0, 220.0][q]
 	env.volumetric_fog_density = 0.006
 	env.volumetric_fog_albedo = Color(0.55, 0.62, 0.8)
 	env.volumetric_fog_length = 120.0
