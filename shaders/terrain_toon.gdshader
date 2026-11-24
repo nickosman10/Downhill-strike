@@ -36,9 +36,9 @@ void fragment() {
 	}
 	vec3 n = normalize(wnorm);
 	float dist = length(wpos - CAMERA_POSITION_WORLD);
-	float n1 = texture(paint, wpos.xz * 0.045).r;
-	float n2 = texture(paint, wpos.xz * 0.19 + 0.37).r;
-	float n3 = texture(paint, vec2(wpos.x + wpos.z, wpos.y * 1.6) * 0.08).r;
+	float n1 = texture(paint, wpos.xz * 0.009).r;
+	float n2 = texture(paint, wpos.xz * 0.031 + 0.37).r;
+	float n3 = texture(paint, vec2(wpos.x + wpos.z, wpos.y * 1.6) * 0.03).r;
 	wob = (n2 - 0.5) * 0.5;
 	float slope = 1.0 - n.y + (n1 - 0.5) * 0.16;
 	float rock = smoothstep(0.3, 0.33, slope);

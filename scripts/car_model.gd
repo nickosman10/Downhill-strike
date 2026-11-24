@@ -741,7 +741,9 @@ func _build_glb(scene: PackedScene) -> void:
 		spot.light_energy = 5.0
 		spot.light_color = Color(1.0, 0.96, 0.85)
 		if Mats.toon():
-			spot.light_energy = 6.0
+			# a broad even pool rather than a hot spot under the bumper
+			spot.light_energy = 4.0
+			spot.spot_attenuation = 0.5
 		if Mats.hq():
 			spot.shadow_enabled = true
 			spot.light_energy = 9.0

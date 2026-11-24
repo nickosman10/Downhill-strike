@@ -299,12 +299,18 @@ func _build_main() -> void:
 		Game.course_index = 0
 		_go())
 	col.add_child(school)
-	if Mats.hq():
+	if RenderingServer.get_rendering_device() != null:
 		var gfx := _button("GRAPHICS: " + Game.QUALITY_NAMES[Game.quality], 22, 54)
 		gfx.pressed.connect(func():
 			Game.set_quality((Game.quality + 1) % 3)
 			gfx.text = "GRAPHICS: " + Game.QUALITY_NAMES[Game.quality])
 		col.add_child(gfx)
+		# art style: the cartoon look, or the heavier photo-style renderer
+		var style := _button("STYLE: " + ("REALISTIC" if Mats.realistic else "ANIME"), 22, 54)
+		style.pressed.connect(func():
+			Game.set_realistic(not Mats.realistic)
+			get_tree().reload_current_scene())
+		col.add_child(style)
 	if not OS.has_feature("web"):
 		var quit := _button("EXIT", 28, 64)
 		quit.pressed.connect(func(): get_tree().quit())

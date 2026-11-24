@@ -17,14 +17,14 @@ var menu_screen := "main"      # which menu screen to come back to after a race
 
 
 func _ready() -> void:
-	if Mats.toon():
-		# cartoon style: every object that enters the scene is cel-shaded
-		get_tree().node_added.connect(func(n: Node) -> void:
-			if n is GeometryInstance3D:
-				Mats.toonify_node.call_deferred(n))
 	_setup_input()
 	records.load(SAVE_PATH)
 	selected_car = records.get_value("garage", "selected", "ae85")
+	Mats.realistic = records.get_value("video", "realistic", false)
+	# cartoon style: every object that enters the scene is cel-shaded
+	get_tree().node_added.connect(func(n: Node) -> void:
+		if n is GeometryInstance3D and Mats.toon():
+			Mats.toonify_node.call_deferred(n))
 	quality = records.get_value("video", "quality", 2)
 	apply_quality()
 	if not is_unlocked(selected_car):
@@ -140,6 +140,13 @@ func set_quality(q: int) -> void:
 	records.set_value("video", "quality", quality)
 	records.save(SAVE_PATH)
 	apply_quality()
+
+
+## Art style: cartoon (default) or the photo-style renderer.
+func set_realistic(on: bool) -> void:
+	Mats.realistic = on
+	records.set_value("video", "realistic", on)
+	records.save(SAVE_PATH)
 
 
 func apply_quality() -> void:

@@ -59,7 +59,224 @@ func build(track: Track) -> void:
 		_red_pavement()
 	if t.style.get("chevron_boards", false):
 		_chevron_rows()
+	if Mats.toon():
+		_road_details()
+		_rocks()
+		_grass_tufts()
 	_plant_pending()
+
+
+## A run of road surface between two lateral offsets (patches, painted bars).
+func _road_run(st: SurfaceTool, i0: int, i1: int, lat_a: float, lat_b: float, lift: float) -> void:
+	for i in range(maxi(i0, 1), mini(i1, t.P.size() - 1) + 1):
+		var a := t.P[i - 1] + t.R[i - 1] * lat_a + Vector3.UP * lift
+		var b := t.P[i - 1] + t.R[i - 1] * lat_b + Vector3.UP * lift
+		var c := t.P[i] + t.R[i] * lat_a + Vector3.UP * lift
+		var d := t.P[i] + t.R[i] * lat_b + Vector3.UP * lift
+		st.set_normal(Vector3.UP)
+		st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
+		st.add_vertex(b); st.add_vertex(c); st.add_vertex(d)
+
+
+## The small things that make a road look used: repair patches, the dashed
+## slow-down markings Japanese roads paint before bends, reflector studs
+## along the centre line, and manhole covers.
+func _road_details() -> void:
+	var n := t.P.size()
+	var step: float = maxf(t.S[mini(10, n - 1)] / 10.0, 0.5)
+	var patch_dark := SurfaceTool.new()
+	patch_dark.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var patch_light := SurfaceTool.new()
+	patch_light.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var white := SurfaceTool.new()
+	white.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var i := 30
+	while i < n - 30:
+		if not t.in_tunnel(i) and rng.randf() < 0.6:
+			var run := int(rng.randf_range(5.0, 22.0) / step)
+			var a := rng.randf_range(-t.hw + 0.4, t.hw - 1.8)
+			var b := minf(a + rng.randf_range(1.1, 2.8), t.hw - 0.35)
+			_road_run(patch_dark if rng.randf() < 0.55 else patch_light, i, i + run, a, b, 0.005)
+		i += int(rng.randf_range(35.0, 110.0) / step)
+	# slow-down dashes: short bars inside the lane edges on the way into a bend
+	var ahead := int(70.0 / step)
+	var bar := maxi(1, int(1.5 / step))
+	var gap := maxi(2, int(4.5 / step))
+	for k in range(1, n - 1):
+		if absf(t.K[k]) > 1.0 / 45.0 or t.in_tunnel(k) or k % gap >= bar:
+			continue
+		var bend := false
+		for j in range(k, mini(k + ahead, n), 4):
+			if absf(t.K[j]) > 1.0 / 32.0:
+				bend = true
+				break
+		if not bend:
+			continue
+		for lat: float in [-t.hw + 0.5, t.hw - 0.68, -0.52, 0.34]:
+			_road_run(white, k, k, lat, lat + 0.18, 0.012)
+	var pd := _mat(Color(0.2, 0.2, 0.27), 0.9)
+	var pl := _mat(Color(0.42, 0.42, 0.5), 0.9)
+	var wm := _mat(Color(0.88, 0.88, 0.85), 0.6)
+	for pair in [[patch_dark, pd], [patch_light, pl], [white, wm]]:
+		(pair[1] as StandardMaterial3D).cull_mode = BaseMaterial3D.CULL_DISABLED
+		(pair[0] as SurfaceTool).set_material(pair[1])
+		var mi := MeshInstance3D.new()
+		mi.mesh = (pair[0] as SurfaceTool).commit()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_add(mi)
+	# reflector studs down the centre line, and the odd manhole cover
+	var studs: Array = []
+	var holes: Array = []
+	var every := maxi(1, int(12.0 / step))
+	for k in range(10, n - 10, every):
+		if t.in_tunnel(k):
+			continue
+		studs.append(Transform3D(Basis(Vector3.UP, atan2(t.D[k].x, t.D[k].z)), t.P[k] + Vector3.UP * 0.02))
+		if rng.randf() < 0.035:
+			var lat := rng.randf_range(-t.hw + 0.9, t.hw - 0.9)
+			holes.append(Transform3D(Basis(), t.P[k] + t.R[k] * lat + Vector3.UP * 0.008))
+	var stud := BoxMesh.new()
+	stud.size = Vector3(0.11, 0.03, 0.09)
+	var sm := _mat(Color(1.0, 0.6, 0.15), 0.4)
+	sm.emission_enabled = true
+	sm.emission = Color(1.0, 0.55, 0.1)
+	sm.emission_energy_multiplier = 0.9
+	_mm_chunked(stud, studs, sm, [], 200.0, 220.0)
+	var lid := CylinderMesh.new()
+	lid.top_radius = 0.34
+	lid.bottom_radius = 0.34
+	lid.height = 0.012
+	lid.radial_segments = 14
+	_mm_chunked(lid, holes, _mat(Color(0.16, 0.16, 0.2), 0.7), [], 200.0, 260.0)
+	var rim := CylinderMesh.new()
+	rim.top_radius = 0.22
+	rim.bottom_radius = 0.22
+	rim.height = 0.02
+	rim.radial_segments = 10
+	_mm_chunked(rim, holes, _mat(Color(0.3, 0.3, 0.36), 0.7), [], 200.0, 260.0)
+
+
+## A boulder cut in flat planes, so the ink lines pick out every face.
+func _toon_rock(seed_v: int) -> ArrayMesh:
+	if _toon_noise == null:
+		_toon_noise = FastNoiseLite.new()
+		_toon_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		_toon_noise.frequency = 0.01
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	var rings := 4
+	var segs := 7
+	var pts: Array = []
+	for ri in rings + 1:
+		var phi := PI * ri / rings
+		for sg in segs + 1:
+			var th := TAU * (sg % segs) / segs
+			var d := Vector3(sin(phi) * cos(th), cos(phi), sin(phi) * sin(th))
+			var bump := 1.0 + 0.55 * _toon_noise.get_noise_3d(d.x * 90.0 + seed_v * 17.0, d.y * 90.0, d.z * 90.0)
+			pts.append(Vector3(d.x, d.y * 0.72, d.z) * bump)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for ri in rings:
+		for sg in segs:
+			var a := ri * (segs + 1) + sg
+			for tri: Array in [[a, a + 1, a + segs + 2], [a, a + segs + 2, a + segs + 1]]:
+				var p0: Vector3 = pts[tri[0]]
+				var p1: Vector3 = pts[tri[1]]
+				var p2: Vector3 = pts[tri[2]]
+				var nrm := (p1 - p0).cross(p2 - p0)
+				if nrm.length() < 0.0001:
+					continue
+				nrm = nrm.normalized()
+				if nrm.dot(p0 + p1 + p2) < 0.0:
+					nrm = -nrm
+				var sh := r.randf_range(0.82, 1.08) * lerpf(0.75, 1.1, clampf(nrm.y * 0.5 + 0.5, 0.0, 1.0))
+				for v: Vector3 in [p0, p1, p2]:
+					st.set_normal(nrm)
+					st.set_color(Color(sh, sh, sh * 1.04))
+					st.add_vertex(v)
+	var m := _mat(Color(0.5, 0.51, 0.6), 0.9)
+	m.vertex_color_use_as_albedo = true
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	st.set_material(m)
+	return st.commit()
+
+
+## Boulders along the verges and crags on the steep hillside, half sunk in the ground.
+func _rocks() -> void:
+	var meshes := [_toon_rock(1), _toon_rock(2), _toon_rock(3)]
+	var xf := [[], [], []]
+	var n := t.P.size()
+	var place := func(p: Vector3, size: float) -> void:
+		var k := rng.randi_range(0, 2)
+		var b := Basis.from_euler(Vector3(rng.randf_range(-0.3, 0.3), rng.randf() * TAU, rng.randf_range(-0.3, 0.3)))
+		b = b.scaled(Vector3(size, size * rng.randf_range(0.8, 1.3), size))
+		xf[k].append(Transform3D(b, p - Vector3(0, size * 0.3, 0)))
+		_keep_out(p, size * 0.9)
+	for i in range(4, n - 4, 3):
+		if t.in_tunnel(i):
+			continue
+		for side: float in [-1.0, 1.0]:
+			if wall_sides.has(Vector2i(i, int(side))):
+				continue
+			# small stones near the verge
+			if rng.randf() < 0.16:
+				var size := rng.randf_range(0.3, 1.1)
+				var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + rng.randf_range(1.4, 8.0) + size) + t.D[i] * rng.randf_range(-2.0, 2.0)
+				p.y = t.terrain_height(p.x, p.z)
+				if absf(p.y - t.P[i].y) < 7.0 and t.dist_to_road(p) > t.rail + 1.0 + size and not _blocked(p, size):
+					place.call(p, size)
+			# crags where the hillside is steep
+			if rng.randf() < 0.1:
+				var p2: Vector3 = t.P[i] + t.R[i] * side * (t.rail + rng.randf_range(9.0, 45.0)) + t.D[i] * rng.randf_range(-4.0, 4.0)
+				var h0 := t.terrain_height(p2.x, p2.z)
+				var steep := absf(t.terrain_height(p2.x + 4.0, p2.z) - t.terrain_height(p2.x - 4.0, p2.z)) + absf(t.terrain_height(p2.x, p2.z + 4.0) - t.terrain_height(p2.x, p2.z - 4.0))
+				p2.y = h0
+				var big := rng.randf_range(1.8, 4.2)
+				if steep > 4.5 and t.dist_to_road(p2) > t.rail + 3.0 + big and not _blocked(p2, big):
+					place.call(p2, big)
+	_cast_shadows = true
+	for k in 3:
+		_mm_chunked(meshes[k], xf[k], null, [], 96.0, 420.0)
+	_cast_shadows = false
+
+
+## Tufts of long grass along the verges.
+func _grass_tufts() -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var r := RandomNumberGenerator.new()
+	r.seed = 5
+	for k in 7:
+		var ang := TAU * k / 7.0 + r.randf_range(-0.3, 0.3)
+		var out := Vector3(cos(ang), 0, sin(ang))
+		var side := Vector3(-out.z, 0, out.x) * 0.05
+		var base := out * r.randf_range(0.02, 0.12)
+		var tip := base + out * r.randf_range(0.1, 0.28) + Vector3.UP * r.randf_range(0.3, 0.55)
+		var sh := r.randf_range(0.85, 1.15)
+		for v: Vector3 in [base - side, base + side, tip]:
+			st.set_normal((Vector3.UP + out * 0.4).normalized())
+			st.set_color(Color(sh, sh, sh) * (1.15 if v == tip else 0.8))
+			st.add_vertex(v)
+	st.set_material(_toon_leaf_mat(Color(0.3, 0.52, 0.2)))
+	var mesh := st.commit()
+	var xf: Array = []
+	var cols: Array = []
+	for i in range(2, t.P.size() - 2):
+		if t.in_tunnel(i):
+			continue
+		for side: float in [-1.0, 1.0]:
+			if wall_sides.has(Vector2i(i, int(side))):
+				continue
+			for c in 2:
+				var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + rng.randf_range(0.95, 4.5)) + t.D[i] * rng.randf_range(-1.0, 1.0)
+				p.y = t.terrain_height(p.x, p.z) - 0.03
+				if absf(p.y - t.P[i].y) > 4.0 or t.dist_to_road(p) < t.rail + 0.9 or _blocked(p, 0.15):
+					continue
+				var sc := rng.randf_range(0.8, 1.9)
+				xf.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(sc, sc * rng.randf_range(0.8, 1.3), sc)), p))
+				var v := rng.randf_range(0.85, 1.15)
+				cols.append(Color(v, v, v * 0.9))
+	_mm_chunked(mesh, xf, null, cols, 64.0, 110.0)
 
 
 ## Register an object's footprint (centre, radius on the ground plane).

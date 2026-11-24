@@ -54,9 +54,10 @@ static func toonify(m: StandardMaterial3D) -> StandardMaterial3D:
 		# no mirror metal in a drawing: bright flat steel instead
 		m.albedo_color = m.albedo_color.lerp(Color(0.8, 0.83, 0.9), 0.35)
 	m.metallic = 0.0
-	m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	# flat-sided things already shade in flat steps; a hard light edge here
+	# would make low headlights flood the road at full strength
 	m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	m.roughness = 0.06
+	m.roughness = 1.0
 	m.roughness_texture = null
 	m.normal_enabled = false
 	m.ao_enabled = false
