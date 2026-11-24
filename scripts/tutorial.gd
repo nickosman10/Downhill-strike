@@ -29,6 +29,7 @@ const STEPS := [
 	["DRIFT", "At the next bend, hold SPACE and steer into the corner.", ["SPACE", "+", "A / D"]],
 	["HOLD THE ANGLE", "Keep SPACE held. Steer into the bend for more angle, away from it for less.", ["SPACE", "hold"]],
 	["CATCH IT", "Let go of SPACE, then counter-steer the other way to straighten up. The car keeps sliding until you catch it.", ["release SPACE", "→", "counter-steer"]],
+	["BRAKE DRIFT", "Another way in: approaching a bend, tap the brake, let go, then turn in hard. The car kicks out. Catch it like before.", ["S", "→", "A / D"]],
 	["GUTTER HOOK", "On a tight hairpin, steer right to the inside edge and drop your inside wheels into the gutter. It carries you round.", ["A / D", "inside edge"]],
 	["INERTIA DRIFT", "On a straight before a bend: flick the steering hard one way, then hard the other way.", ["A", "→", "D"]],
 	["BLIND ATTACK", "Switch your lights off while chasing at night. Riskier, but drift points count double.", ["L"]],
@@ -197,25 +198,30 @@ func update(dt: float) -> void:
 					_was_held = false
 					_next("CAUGHT IT!")
 		6:
+			if car.drifting and not _was_drifting and car._assist_t > 0.0:
+				_next("BRAKE DRIFT!")
+			elif _t > 90.0:
+				_next("Skipped: practise it on your own")
+		7:
 			if car.hooked:
 				_next("HOOKED!")
 			elif _t > 90.0:
 				_next("Skipped: try it on a hairpin later")
-		7:
+		8:
 			if car.drifting and not car._held and not _was_drifting:
 				_next("INERTIA DRIFT!")
 			elif _t > 60.0:
 				_next("Skipped: practise it on your own")
-		8:
+		9:
 			if not car.lights_on:
 				_next("BLIND ATTACK!")
 	_was_drifting = car.drifting
 	# quick-time prompt before bends while learning to drift
-	var learning := step in [3, 6]
+	var learning := step in [3, 6, 7]
 	if learning and bend_ahead and not car.drifting and car.speed > 10.0:
 		_corner_flash += dt
 		var on := int(_corner_flash * 6.0) % 2 == 0
-		qte.text = ("SPACE + STEER!" if step == 3 else "INSIDE EDGE!") if on else ""
+		qte.text = ({3: "SPACE + STEER!", 6: "TAP BRAKE, TURN IN!", 7: "INSIDE EDGE!"}[step]) if on else ""
 		qte.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
 	elif step == 5 and car.drifting and not car._held:
 		qte.text = "COUNTER-STEER!"

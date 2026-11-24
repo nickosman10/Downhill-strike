@@ -75,7 +75,8 @@ var drift_beta := 0.0            # current body angle to the direction of travel
 var _drift_exit := false
 var _drift_omega := 0.0
 var spins := 0
-var _held := false           # Space held during the drift (assisted)
+var _held := false
+var _assist_t := 0.0         # brake-drift entry: brief assisted hold
 var _release_t := 0.0        # time since Space was released mid-drift
 var _recover := 0.0          # seconds of eased steering after a drift ends
 var stagger := 0.0           # seconds of lost control after a crash
@@ -85,6 +86,8 @@ var _hook_dir := 0.0       # after the finish line: brake to a stop along the ro
 const RECOVER_T := 0.7
 var _brake_down_at := -10.0
 var _brake_up_at := -10.0
+var _brake_peak := 0.0
+var _steer_at_release := 0.0
 var _was_braking := false
 var _idle_time := 0.0
 var _stuck_time := 0.0
@@ -222,15 +225,30 @@ func physics_step(dt: float) -> void:
 			_recover = RECOVER_T * 0.6
 
 	# --- drift entry: only on purpose (no surprise slides)
-	var braking_now := brake > 0.85
+	var braking_now := brake > 0.5
 	if braking_now and not _was_braking:
 		_brake_down_at = _clock
+		_brake_peak = 0.0
+	if braking_now:
+		_brake_peak = maxf(_brake_peak, brake)
 	if not braking_now and _was_braking:
 		_brake_up_at = _clock
+		_steer_at_release = absf(target_steer)
 	_was_braking = braking_now
 	_detect_inertia_drift(target_steer)
 	if not drifting and speed > 9.0 and absf(target_steer) > 0.35 and handbrake and not hooked:
 		_start_drift(signf(target_steer))
+	# brake drift (as in the series): a stab of brake, then turn in hard.
+	# Forgiving timing: brake up to ~1 s, turn in within ~0.8 s of letting go
+	if not drifting and not hooked and speed > 12.0 and absf(target_steer) > 0.6 and control_enabled:
+		# a firm stab, released before turning in hard (not a normal braking corner)
+		var stab := _brake_up_at > _brake_down_at and _brake_up_at - _brake_down_at < 1.0 \
+			and _brake_peak > 0.8 and _steer_at_release < 0.45
+		if stab and _clock - _brake_up_at < 0.8:
+			_brake_up_at = -10.0          # one drift per brake stab
+			_start_drift(signf(target_steer))
+			_assist_t = 0.7               # the game holds the angle briefly, then it's yours
+			_award("BRAKE DRIFT", 150, Color(1.0, 0.6, 0.3))
 	if drifting and handbrake and not _held:
 		_held = true          # pressed Space again mid-slide: take the assist back
 
@@ -251,7 +269,13 @@ func physics_step(dt: float) -> void:
 	if drifting:
 		var into := clampf(target_steer * drift_dir, 0.0, 1.0)
 		var counter := clampf(-target_steer * drift_dir, 0.0, 1.0)
-		if _held and not handbrake:
+		if _assist_t > 0.0:
+			_assist_t -= dt
+			_held = true
+			if _assist_t <= 0.0 and not handbrake:
+				_held = false
+				_release_t = 0.0
+		elif _held and not handbrake:
 			_held = false              # let go of Space: the slide carries on
 			_release_t = 0.0
 		var follow := 0.6
@@ -465,6 +489,7 @@ func _start_drift(dir: float) -> void:
 	drift_beta = 0.08
 	_held = handbrake
 	_release_t = 0.0
+	_assist_t = 0.0
 	if not _held:
 		drift_beta = 0.35        # flick entry: already sideways, catch it
 	_drift_exit = false

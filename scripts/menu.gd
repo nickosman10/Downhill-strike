@@ -318,7 +318,7 @@ func _ready() -> void:
 	right.add_child(go)
 
 	var help := Label.new()
-	help.text = "DRIFT: hold Space + steer into the bend · steer in = more angle, out = less · let go of Space and counter-steer to catch it · new? try Drift School\nW/S throttle·brake   A/D steer   L lights   C camera   R reset   Esc menu   M next song   N music on/off"
+	help.text = "DRIFT: hold Space + steer, or tap brake then turn in hard · steer in = more angle, out = less · let go of Space and counter-steer to catch it · new? try Drift School\nW/S throttle·brake   A/D steer   L lights   C camera   R reset   Esc menu   M next song   N music on/off"
 	help.add_theme_font_size_override("font_size", 13)
 	help.add_theme_color_override("font_color", Color(0.6, 0.66, 0.8))
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

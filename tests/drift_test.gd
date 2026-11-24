@@ -56,5 +56,30 @@ func _initialize() -> void:
 		if normal.drifts > 0 or drift.time >= 900.0 or drift.drifts < 5:
 			fails += 1
 		t.queue_free()
+	# brake-drift reliability: tap S, release, turn in hard -> drift, every time
+	var c0: Dictionary = Courses.all()[0]
+	var t0 := Track.new(); root.add_child(t0); t0.build(c0)
+	var ok := 0
+	for k in 10:
+		var car := PlayerCar.new(); root.add_child(car)
+		car.setup(t0, t0.start_s + 200.0 + k * 300.0, 0.0)
+		car.control_enabled = true; car.hold_brake = false; car.bot = true
+		var d3 := t0.dir_at(car.s)
+		car.vel = Vector2(d3.x, d3.z) * 22.0
+		var tt := 0.0
+		var got := false
+		while tt < 1.6:
+			var dt := 1.0 / 120.0
+			tt += dt
+			car.bot_brake = 1.0 if tt < 0.35 else 0.0
+			car.bot_steer = 1.0 if tt > 0.45 else 0.0
+			car.bot_throttle = 1.0 if tt > 0.45 else 0.0
+			car.physics_step(dt)
+			if car.drifting: got = true
+		if got: ok += 1
+		car.queue_free()
+	print("brake drift: %d / 10 taps started a drift" % ok)
+	if ok < 10:
+		fails += 1
 	print("drift test failures: %d" % fails)
 	quit(1 if fails else 0)
