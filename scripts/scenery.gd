@@ -1797,7 +1797,7 @@ func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
 	_piece(_boxm(Vector3(0.36, 0.1, 0.6)), _emissive(col, 5.0), Transform3D(arm_basis, base + Vector3.UP * 7.3 + toward_road * 1.8))
 	var l := SpotLight3D.new()
 	l.light_color = col
-	l.light_energy = 3.5 * (0.6 if Mats.toon() else 1.0)
+	l.light_energy = 3.5 * (0.42 if Mats.toon() else 1.0)
 	l.spot_range = 16.0
 	l.spot_angle = 55.0
 	l.spot_attenuation = 0.9

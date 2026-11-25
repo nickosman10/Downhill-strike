@@ -639,7 +639,7 @@ func _build_guardrails() -> void:
 
 ## Many copies of a mesh, grouped into 120 m cells that are each drawn only
 ## within `reach` metres of the camera.
-func _multimesh_cells(mesh: Mesh, xforms: Array[Transform3D], mat: Material, reach: float) -> void:
+func _multimesh_cells(mesh: Mesh, xforms: Array[Transform3D], mat: Material, reach: float, from := 0.0) -> void:
 	var cells := {}
 	for x in xforms:
 		var key := Vector2i(floori(x.origin.x / 120.0), floori(x.origin.z / 120.0))
@@ -663,6 +663,7 @@ func _multimesh_cells(mesh: Mesh, xforms: Array[Transform3D], mat: Material, rea
 		mmi.multimesh = mm
 		mmi.material_override = mat
 		mmi.position = centre
+		mmi.visibility_range_begin = from
 		mmi.visibility_range_end = reach
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
@@ -727,6 +728,25 @@ func _build_trees() -> void:
 				var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.4), sc))
 				tops.append(Transform3D(b, p + Vector3.UP * (1.2 + 3.0) * b.y.length()))
 				trunks.append(Transform3D(b, p + Vector3.UP * 0.8 * b.y.length()))
+	if Mats.toon():
+		# the same sculpted cartoon trees as the real-road courses
+		var sc := Scenery.new()
+		var leafs := [Color(0.13, 0.36, 0.17), Color(0.2, 0.4, 0.14)]
+		var near_r: float = [35.0, 60.0, 90.0][Mats.quality]
+		var far_r: float = [300.0, 450.0, 650.0][Mats.quality]
+		var kinds: Array = [[], [], []]
+		for k in trunks.size():
+			var x: Transform3D = trunks[k]
+			var up := x.basis.y.length()
+			kinds[k % 3].append(Transform3D(x.basis.scaled(Vector3(0.8, 0.8, 0.8)), x.origin - Vector3.UP * 0.8 * up))
+		for k in 3:
+			var typed: Array[Transform3D] = []
+			typed.assign(kinds[k])
+			var full: Mesh = sc._toon_cedar(13, 0) if k == 2 else sc._toon_tree(11 + k, leafs[k], 0)
+			var far: Mesh = sc._toon_cedar(13, 2) if k == 2 else sc._toon_tree(11 + k, leafs[k], 2)
+			_multimesh_cells(full, typed, null, near_r)
+			_multimesh_cells(far, typed, null, far_r, near_r)
+		return
 	add_child(_multimesh(cone, tops, _mat(Color(0.06, 0.16, 0.08))))
 	add_child(_multimesh(trunk, trunks, _mat(Color(0.2, 0.13, 0.08))))
 
