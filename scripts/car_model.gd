@@ -742,7 +742,7 @@ func _build_glb(scene: PackedScene) -> void:
 		spot.light_color = Color(1.0, 0.96, 0.85)
 		if Mats.toon():
 			# a broad even pool rather than a hot spot under the bumper
-			spot.light_energy = 4.0
+			spot.light_energy = 5.0
 			spot.spot_attenuation = 0.5
 		if Mats.hq():
 			spot.shadow_enabled = true
@@ -875,11 +875,11 @@ func _build_smoke() -> void:
 	puff.radial_segments = 9
 	puff.rings = 5
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.93, 0.94, 1.0)
+	mat.albedo_color = Color(0.8, 0.83, 0.95)
 	mat.roughness = 1.0
 	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.38, 0.5)
+	mat.emission = Color(0.34, 0.36, 0.44)
 	var swell := Curve.new()
 	swell.add_point(Vector2(0.0, 0.25))
 	swell.add_point(Vector2(0.3, 1.0))
@@ -888,8 +888,8 @@ func _build_smoke() -> void:
 		var p := CPUParticles3D.new()
 		p.mesh = puff
 		p.material_override = mat
-		p.amount = 12
-		p.lifetime = 0.75
+		p.amount = 8
+		p.lifetime = 0.6
 		p.local_coords = false
 		p.emitting = false
 		p.direction = Vector3(0, 0.5, 1)
@@ -897,8 +897,8 @@ func _build_smoke() -> void:
 		p.initial_velocity_min = 1.2
 		p.initial_velocity_max = 3.0
 		p.gravity = Vector3(0, 1.6, 0)
-		p.scale_amount_min = 0.45
-		p.scale_amount_max = 0.95
+		p.scale_amount_min = 0.22
+		p.scale_amount_max = 0.5
 		p.scale_amount_curve = swell
 		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		p.position = Vector3(wheels[i].position.x, 0.18, wheels[i].position.z + 0.25)

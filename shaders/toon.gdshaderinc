@@ -10,7 +10,7 @@ vec3 toon_light(vec3 n, vec3 l, float atten, vec3 light_col, bool directional, f
 		// lamps and headlights: light skims along the ground, so keep the angle
 		// falloff and draw the pool in steps: a faint outer wash, a pool, a core
 		band = smoothstep(0.0, 0.5, nl);
-		a = smoothstep(0.004, 0.008, a) * 0.2 + smoothstep(0.05, 0.065, a) * 0.3 + smoothstep(0.25, 0.29, a) * 0.5;
+		a = smoothstep(0.02, 0.03, a) * 0.07 + smoothstep(0.1, 0.12, a) * 0.2 + smoothstep(0.35, 0.39, a) * 0.4;
 	}
 	return light_col * band * a / PI;
 }

@@ -11,7 +11,11 @@ var mode: int = Mode.BATTLE
 var records := ConfigFile.new()
 var selected_car := "ae85"
 var campaign_stage := 0
-var quality := 2               # graphics: 0 low, 1 medium, 2 high
+var quality := 1               # graphics: 0 low, 1 medium, 2 high
+var _auto := true              # lower the level by itself when the frame rate is poor
+var _fps_t := 0.0
+var _fps_n := 0
+var _fps_label: Label
 const QUALITY_NAMES := ["LOW", "MEDIUM", "HIGH"]
 var menu_screen := "main"      # which menu screen to come back to after a race
 
@@ -26,7 +30,10 @@ func _ready() -> void:
 	get_tree().node_added.connect(func(n: Node) -> void:
 		if n is GeometryInstance3D and Mats.toon():
 			Mats.toonify_node.call_deferred(n))
-	quality = records.get_value("video", "quality", 2)
+	# (a new key: levels saved by earlier builds meant something far heavier)
+	quality = records.get_value("video", "level", 1)
+	_auto = not records.get_value("video", "chosen", false)
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	apply_quality()
 	if not is_unlocked(selected_car):
 		selected_car = "ae85"
@@ -136,9 +143,12 @@ func is_battle(m: int) -> bool:
 	return m == Mode.BATTLE or m == Mode.CAMPAIGN
 
 
-func set_quality(q: int) -> void:
+func set_quality(q: int, by_player := true) -> void:
 	quality = clampi(q, 0, 2)
-	records.set_value("video", "quality", quality)
+	records.set_value("video", "level", quality)
+	if by_player:
+		_auto = false
+		records.set_value("video", "chosen", true)
 	records.save(SAVE_PATH)
 	apply_quality()
 
@@ -151,8 +161,55 @@ func set_realistic(on: bool) -> void:
 
 
 func apply_quality() -> void:
-	# lower settings render the 3D scene at a lower resolution and upscale it
-	get_viewport().scaling_3d_scale = [0.67, 0.85, 1.0][quality]
+	Mats.quality = quality
+	var vp := get_viewport()
+	# lower levels draw the 3D picture smaller and sharpen it back up
+	vp.scaling_3d_scale = [0.6, 0.8, 1.0][quality]
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR if quality == 2 else Viewport.SCALING_3D_MODE_FSR
+	vp.msaa_3d = Viewport.MSAA_2X if quality == 2 else Viewport.MSAA_DISABLED
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+	if RenderingServer.get_rendering_device() != null:
+		RenderingServer.directional_shadow_atlas_set_size([2048, 4096, 4096][quality], true)
+		var soft := RenderingServer.SHADOW_QUALITY_SOFT_HIGH if Mats.hq() else RenderingServer.SHADOW_QUALITY_SOFT_LOW
+		RenderingServer.directional_soft_shadow_filter_set_quality(soft)
+		RenderingServer.positional_soft_shadow_filter_set_quality(soft)
+	for sun in get_tree().get_nodes_in_group("sun"):
+		Race.sun_shadows(sun)
+
+
+func _process(dt: float) -> void:
+	_fps_t += dt
+	_fps_n += 1
+	if _fps_t < 4.0:
+		return
+	var fps := _fps_n / _fps_t
+	_fps_t = 0.0
+	_fps_n = 0
+	if _fps_label:
+		_fps_label.text = "%d fps · graphics %s" % [int(fps), QUALITY_NAMES[quality]]
+	# too slow on this machine: step the graphics down (until the player picks a level)
+	if _auto and quality > 0 and fps < 40.0 and not get_tree().paused and Engine.get_frames_drawn() > 400:
+		set_quality(quality - 1, false)
+		var scene := get_tree().current_scene
+		if scene is Menu:
+			get_tree().reload_current_scene.call_deferred()
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	# F3: frame-rate read-out
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
+		if _fps_label:
+			_fps_label.get_parent().queue_free()
+			_fps_label = null
+		else:
+			var layer := CanvasLayer.new()
+			layer.layer = 50
+			add_child(layer)
+			_fps_label = Label.new()
+			_fps_label.position = Vector2(12, 8)
+			Ui.inked(_fps_label, 16, Ui.YELLOW, 6)
+			_fps_label.text = "measuring…"
+			layer.add_child(_fps_label)
 
 
 func select_car(id: String) -> void:

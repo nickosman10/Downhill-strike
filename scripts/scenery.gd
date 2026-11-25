@@ -59,11 +59,135 @@ func build(track: Track) -> void:
 		_red_pavement()
 	if t.style.get("chevron_boards", false):
 		_chevron_rows()
+	_spectators()
 	if Mats.toon():
 		_road_details()
 		_rocks()
 		_grass_tufts()
 	_plant_pending()
+
+
+func _box_at(st: SurfaceTool, c: Vector3, size: Vector3, col: Color, tilt := Basis()) -> void:
+	st.set_color(col.srgb_to_linear())
+	var h := size * 0.5
+	for face in [[Vector3.RIGHT, Vector3.UP, Vector3.BACK], [Vector3.LEFT, Vector3.UP, Vector3.FORWARD], [Vector3.UP, Vector3.BACK, Vector3.RIGHT],
+			[Vector3.DOWN, Vector3.FORWARD, Vector3.RIGHT], [Vector3.BACK, Vector3.UP, Vector3.LEFT], [Vector3.FORWARD, Vector3.UP, Vector3.RIGHT]]:
+		var n: Vector3 = face[0]
+		var u: Vector3 = face[1]
+		var v: Vector3 = face[2]
+		var corners := [n * h - u * h - v * h, n * h + u * h - v * h, n * h + u * h + v * h, n * h - u * h + v * h]
+		for k: int in [0, 1, 2, 0, 2, 3]:
+			st.set_normal(tilt * n)
+			st.add_vertex(c + tilt * (corners[k] as Vector3))
+
+
+func _ball_at(st: SurfaceTool, c: Vector3, rad: Vector3, col: Color) -> void:
+	st.set_color(col.srgb_to_linear())
+	var rings := 4
+	var segs := 7
+	var pts: Array = []
+	for r in rings + 1:
+		for sg in segs + 1:
+			var phi := PI * r / rings
+			var th := TAU * sg / segs
+			pts.append(Vector3(sin(phi) * cos(th), cos(phi), sin(phi) * sin(th)))
+	for r in rings:
+		for sg in segs:
+			var a := r * (segs + 1) + sg
+			for k: int in [a, a + 1, a + segs + 2, a, a + segs + 2, a + segs + 1]:
+				st.set_normal(pts[k])
+				st.add_vertex(c + Vector3(pts[k].x * rad.x, pts[k].y * rad.y, pts[k].z * rad.z))
+
+
+## One onlooker, drawn simply: jacket, trousers, head and hair. Faces -Z.
+## pose 0 = hands down, 1 = one arm up, 2 = both arms up.
+func _person_mesh(seed_v: int) -> ArrayMesh:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_v
+	var tops := [Color(0.85, 0.2, 0.2), Color(0.2, 0.35, 0.8), Color(0.95, 0.85, 0.3), Color(0.9, 0.9, 0.92), Color(0.2, 0.55, 0.35), Color(0.55, 0.3, 0.7), Color(0.15, 0.15, 0.2), Color(0.95, 0.55, 0.2)]
+	var legs := [Color(0.16, 0.2, 0.4), Color(0.12, 0.12, 0.15), Color(0.5, 0.42, 0.3), Color(0.35, 0.38, 0.45)]
+	var hairs := [Color(0.08, 0.06, 0.06), Color(0.25, 0.14, 0.08), Color(0.55, 0.35, 0.12), Color(0.12, 0.1, 0.2)]
+	var skin := Color(0.96, 0.78, 0.64)
+	var top: Color = tops[r.randi() % tops.size()]
+	var leg: Color = legs[r.randi() % legs.size()]
+	var hair: Color = hairs[r.randi() % hairs.size()]
+	var pose: int = [0, 0, 1, 0, 2, 0, 0, 1, 0][seed_v % 9]      # most just stand and watch
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for sx: float in [-1.0, 1.0]:
+		_box_at(st, Vector3(sx * 0.095, 0.42, 0), Vector3(0.15, 0.84, 0.17), leg)
+		_box_at(st, Vector3(sx * 0.095, 0.04, -0.04), Vector3(0.16, 0.08, 0.27), Color(0.9, 0.9, 0.9))
+	_box_at(st, Vector3(0, 1.12, 0), Vector3(0.4, 0.58, 0.24), top)
+	for sx: float in [-1.0, 1.0]:
+		var raised := pose == 2 or (pose == 1 and sx > 0.0)
+		if raised:
+			var tilt := Basis(Vector3.BACK, -sx * 0.35)
+			_box_at(st, Vector3(sx * 0.3, 1.58, 0), Vector3(0.11, 0.5, 0.12), top, tilt)
+			_ball_at(st, Vector3(sx * 0.39, 1.86, 0), Vector3(0.06, 0.07, 0.06), skin)
+		else:
+			_box_at(st, Vector3(sx * 0.26, 1.1, 0), Vector3(0.11, 0.56, 0.13), top)
+			_ball_at(st, Vector3(sx * 0.26, 0.79, 0), Vector3(0.06, 0.07, 0.06), skin)
+	_box_at(st, Vector3(0, 1.45, 0), Vector3(0.1, 0.08, 0.1), skin)
+	_ball_at(st, Vector3(0, 1.6, 0), Vector3(0.125, 0.14, 0.13), skin)
+	# hair: a cap over the top and back of the head
+	_ball_at(st, Vector3(0, 1.645, 0.03), Vector3(0.14, 0.125, 0.145), hair)
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/crowd_toon.gdshader")
+	st.set_material(m)
+	return st.commit()
+
+
+## People who came up the mountain to watch the battle: small groups behind
+## the rail at some of the bends, the way a gallery gathers at the good corners.
+func _spectators() -> void:
+	if not Mats.crowd:
+		return
+	var meshes: Array = []
+	var xf: Array = []
+	for k in 9:
+		meshes.append(_person_mesh(40 + k))
+		xf.append([])
+	var n := t.P.size()
+	var i := 40
+	while i < n - 40:
+		if absf(t.K[i]) < 1.0 / 38.0 or t.S[i] > t.finish_s:
+			i += 1
+			continue
+		# the whole bend, and its tightest point
+		var j := i
+		var apex := i
+		while j < n - 40 and absf(t.K[j]) >= 1.0 / 38.0:
+			if absf(t.K[j]) > absf(t.K[apex]):
+				apex = j
+			j += 1
+		i = j + 10
+		if rng.randf() > 0.4 or t.in_tunnel(apex):
+			continue
+		var outside := -signf(t.K[apex])
+		for side: float in [outside, -outside]:
+			if wall_sides.has(Vector2i(apex, int(side))):
+				continue
+			var probe: Vector3 = t.P[apex] + t.R[apex] * side * (t.rail + 1.8)
+			if absf(t.terrain_height(probe.x, probe.z) - t.P[apex].y) > 1.3:
+				continue
+			var count := rng.randi_range(4, 9)
+			for c in count:
+				var at := clampi(apex + rng.randi_range(-7, 7), 1, n - 2)
+				var p: Vector3 = t.P[at] + t.R[at] * side * (t.rail + rng.randf_range(0.8, 2.4))
+				var ground := t.terrain_height(p.x, p.z)
+				if absf(ground - t.P[at].y) > 1.3 or _blocked(p, 0.35):
+					continue
+				p.y = maxf(ground, t.P[at].y - 0.3) - 0.02
+				var face := Basis.looking_at(t.R[at] * side, Vector3.UP).rotated(Vector3.UP, rng.randf_range(-0.5, 0.5))
+				var sc := rng.randf_range(0.94, 1.08)
+				xf[rng.randi() % meshes.size()].append(Transform3D(face.scaled(Vector3(sc, sc, sc)), p))
+				_keep_out(p, 0.45)
+			break
+	_cast_shadows = Mats.toon() or Mats.hq()
+	for k in meshes.size():
+		if not xf[k].is_empty():
+			_mm_chunked(meshes[k], xf[k], null, [], 128.0, 170.0)
+	_cast_shadows = false
 
 
 ## A run of road surface between two lateral offsets (patches, painted bars).
@@ -234,10 +358,8 @@ func _rocks() -> void:
 				var big := rng.randf_range(1.8, 4.2)
 				if steep > 4.5 and t.dist_to_road(p2) > t.rail + 3.0 + big and not _blocked(p2, big):
 					place.call(p2, big)
-	_cast_shadows = true
 	for k in 3:
-		_mm_chunked(meshes[k], xf[k], null, [], 96.0, 420.0)
-	_cast_shadows = false
+		_mm_chunked(meshes[k], xf[k], null, [], 128.0, [200.0, 300.0, 420.0][Mats.quality])
 
 
 ## Tufts of long grass along the verges.
@@ -276,7 +398,7 @@ func _grass_tufts() -> void:
 				xf.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(sc, sc * rng.randf_range(0.8, 1.3), sc)), p))
 				var v := rng.randf_range(0.85, 1.15)
 				cols.append(Color(v, v, v * 0.9))
-	_mm_chunked(mesh, xf, null, cols, 64.0, 110.0)
+	_mm_chunked(mesh, xf, null, cols, 128.0, [60.0, 80.0, 110.0][Mats.quality])
 
 
 ## Register an object's footprint (centre, radius on the ground plane).
@@ -352,7 +474,7 @@ func _plant_pending() -> void:
 			# detail levels: [mesh, from, to, casts shadow] per level, in small chunks so
 			# each patch of forest switches level by its own distance from the camera
 			for lod in job[7]:
-				_mm_lod(lod[0], keep_x, keep_c, 48.0, lod[1], lod[2], lod[3])
+				_mm_lod(lod[0], keep_x, keep_c, 128.0 if Mats.toon() else 48.0, lod[1], lod[2], lod[3])
 			continue
 		_cast_shadows = (Mats.hq() or Mats.toon()) and clear > 1.0      # trees cast real shadows
 		_mm_chunked(mesh, keep_x, null, keep_c, job[3], job[4])
@@ -428,7 +550,8 @@ func _mm_lod(mesh: Mesh, xf: Array, colors: Array, chunk: float, from: float, to
 		if shadow != 2:
 			mmi.visibility_range_begin_margin = 5.0 if from > 0.0 else 0.0
 			mmi.visibility_range_end_margin = 5.0
-			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+			if Mats.hq():
+				mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 		_add(mmi)
 
 
@@ -481,11 +604,12 @@ func _toon_leaf_mat(c: Color) -> ShaderMaterial:
 
 ## One sculpted mass of leaves: a lumpy rounded volume (cartoon trees are
 ## built from these, so they are solid from every side).
-func _puff(st: SurfaceTool, c: Vector3, rad: Vector3, seed_v: float, shade: float, rings := 7, segs := 11) -> void:
+func _puff(st: SurfaceTool, c: Vector3, rad: Vector3, seed_v: float, shade: float, rings := 5, segs := 8, tint := Color.WHITE) -> void:
 	if _toon_noise == null:
 		_toon_noise = FastNoiseLite.new()
 		_toon_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 		_toon_noise.frequency = 0.01
+	var lin := tint.srgb_to_linear()      # vertex colours reach the shader as linear light
 	var pts: Array = []
 	for r in rings + 1:
 		var phi := PI * r / rings
@@ -501,29 +625,33 @@ func _puff(st: SurfaceTool, c: Vector3, rad: Vector3, seed_v: float, shade: floa
 			var a := r * (segs + 1) + sg
 			for k: int in [a, a + 1, a + segs + 2, a, a + segs + 2, a + segs + 1]:
 				st.set_normal(pts[k][1])
-				st.set_color(Color(pts[k][2], pts[k][2], pts[k][2]))
+				st.set_color(Color(lin.r * pts[k][2], lin.g * pts[k][2], lin.b * pts[k][2]))
 				st.add_vertex(pts[k][0])
+
+
+const BARK := Color(0.147, 0.051, 0.024)      # warm brown, as linear light
 
 
 ## Cartoon broadleaf tree: bent trunk, forked boughs, a crown of leaf masses.
 ## detail 0 = beside the road, 1 = middle distance, 2 = far hillside.
+## Trunk and leaves share one surface (colour is in the vertices), so each
+## batch of trees is a single draw.
 func _toon_tree(seed_v: int, leaf: Color, detail := 0) -> ArrayMesh:
 	var r := RandomNumberGenerator.new()
 	r.seed = seed_v
-	var mesh := ArrayMesh.new()
-	var bark := SurfaceTool.new()
-	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var crown := SurfaceTool.new()
-	crown.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rings: int = [7, 4, 3][detail]
-	var segs: int = [11, 7, 5][detail]
-	var sides: int = [8, 5, 3][detail]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rings: int = [5, 3, 3][detail]
+	var segs: int = [8, 6, 5][detail]
+	var sides: int = [6, 4, 3][detail]
 	var fork := Vector3(r.randf_range(-0.3, 0.3), 4.2, r.randf_range(-0.3, 0.3))
+	st.set_color(BARK)
 	if detail == 0:
-		_limb(bark, Vector3(0, -0.5, 0), fork * 0.5 + Vector3(0.12, 0, 0.08), 0.34, 0.26, sides)
-		_limb(bark, fork * 0.5 + Vector3(0.12, 0, 0.08), fork, 0.26, 0.2, sides, 1.2)
+		_limb(st, Vector3(0, -0.5, 0), fork * 0.5 + Vector3(0.12, 0, 0.08), 0.34, 0.26, sides)
+		_limb(st, fork * 0.5 + Vector3(0.12, 0, 0.08), fork, 0.26, 0.2, sides, 1.2)
 	else:
-		_limb(bark, Vector3(0, -0.5, 0), fork, 0.34, 0.2, sides)
+		_limb(st, Vector3(0, -0.5, 0), fork, 0.34, 0.2, sides)
+	var puffs: Array = []
 	var n := 4
 	for k in n:
 		var ang := TAU * k / n + r.randf_range(-0.3, 0.3)
@@ -534,48 +662,44 @@ func _toon_tree(seed_v: int, leaf: Color, detail := 0) -> ArrayMesh:
 		var sh1 := r.randf_range(0.9, 1.05)
 		var sh2 := r.randf_range(0.8, 0.95)
 		if detail == 0:
-			_limb(bark, fork, mid, 0.17, 0.11, 6)
-			_limb(bark, mid, tip, 0.11, 0.05, 5)
+			_limb(st, fork, mid, 0.17, 0.11, 5)
+			_limb(st, mid, tip, 0.11, 0.05, 4)
 		elif detail == 1:
-			_limb(bark, fork, tip, 0.15, 0.05, 3)
+			_limb(st, fork, tip, 0.15, 0.05, 3)
 		if detail < 2:
-			_puff(crown, tip + Vector3(0, 0.5, 0), Vector3(s, s * 0.72, s), seed_v * 10.0 + k, sh1, rings, segs)
+			puffs.append([tip + Vector3(0, 0.5, 0), Vector3(s, s * 0.72, s), seed_v * 10.0 + k, sh1, rings, segs])
 		if detail == 0:
 			# a smaller mass hanging off the side of each bough
 			var side := Vector3(cos(ang + 0.9), 0, sin(ang + 0.9)) * s * 0.85
-			_puff(crown, tip + side + Vector3(0, -0.5, 0), Vector3(s, s * 0.7, s) * 0.62, seed_v * 10.0 + k + 40.0, sh2, 6, 9)
+			puffs.append([tip + side + Vector3(0, -0.5, 0), Vector3(s, s * 0.7, s) * 0.62, seed_v * 10.0 + k + 40.0, sh2, 4, 6])
 	# the top of the crown
 	var off := Vector3(r.randf_range(-1.0, 1.0), 3.0, r.randf_range(-1.0, 1.0))
 	if detail < 2:
-		_puff(crown, fork + Vector3(0, 4.4, 0), Vector3(2.5, 1.9, 2.5), seed_v * 10.0 + 99.0, 1.08, rings, segs)
-		_puff(crown, fork + off, Vector3(2.9, 1.7, 2.9), seed_v * 10.0 + 77.0, 0.9, rings, segs)
+		puffs.append([fork + Vector3(0, 4.4, 0), Vector3(2.5, 1.9, 2.5), seed_v * 10.0 + 99.0, 1.08, rings, segs])
+		puffs.append([fork + off, Vector3(2.9, 1.7, 2.9), seed_v * 10.0 + 77.0, 0.9, rings, segs])
 	else:
 		# far away the whole crown is one mass
-		_puff(crown, fork + Vector3(0, 3.2, 0), Vector3(4.6, 3.1, 4.6), seed_v * 10.0 + 99.0, 1.0, 4, 7)
-	bark.set_material(trunk_mat)
-	bark.commit(mesh)
-	crown.set_material(_toon_leaf_mat(leaf))
-	crown.commit(mesh)
-	return mesh
+		puffs.append([fork + Vector3(0, 3.2, 0), Vector3(4.6, 3.1, 4.6), seed_v * 10.0 + 99.0, 1.0, 3, 6])
+	for pf in puffs:
+		_puff(st, pf[0], pf[1], pf[2], pf[3], pf[4], pf[5], leaf)
+	st.set_material(_toon_leaf_mat(Color.WHITE))
+	return st.commit()
 
 
 ## Cartoon cedar: a tall straight trunk carrying stacked skirts of foliage.
 func _toon_cedar(seed_v: int, detail := 0) -> ArrayMesh:
-	var r := RandomNumberGenerator.new()
-	r.seed = seed_v
-	var mesh := ArrayMesh.new()
-	var bark := SurfaceTool.new()
-	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var crown := SurfaceTool.new()
-	crown.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var leaf := Color(0.09, 0.3, 0.2).srgb_to_linear()
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var h := 15.0
+	st.set_color(BARK)
 	if detail == 0:
-		_limb(bark, Vector3(0, -0.5, 0), Vector3(0, h * 0.5, 0), 0.32, 0.2, 8)
-		_limb(bark, Vector3(0, h * 0.5, 0), Vector3(0, h - 0.5, 0), 0.2, 0.05, 6, 3.0)
+		_limb(st, Vector3(0, -0.5, 0), Vector3(0, h * 0.5, 0), 0.32, 0.2, 6)
+		_limb(st, Vector3(0, h * 0.5, 0), Vector3(0, h - 0.5, 0), 0.2, 0.05, 5, 3.0)
 	else:
-		_limb(bark, Vector3(0, -0.5, 0), Vector3(0, h * 0.6, 0), 0.32, 0.15, 4 if detail == 1 else 3)
-	var tiers: int = [6, 4, 2][detail]
-	var segs: int = [12, 7, 5][detail]
+		_limb(st, Vector3(0, -0.5, 0), Vector3(0, h * 0.6, 0), 0.32, 0.15, 4 if detail == 1 else 3)
+	var tiers: int = [5, 3, 2][detail]
+	var segs: int = [9, 6, 5][detail]
 	for k in tiers:
 		var f := float(k) / (tiers - 1)
 		var y0 := lerpf(4.2, h - 2.6 - (0.0 if detail == 0 else 6.0 / tiers), f)
@@ -592,21 +716,18 @@ func _toon_cedar(seed_v: int, detail := 0) -> ArrayMesh:
 		for sg in segs:
 			var q := [[ring[sg][0], ring[sg][1], shade * 0.8], [ring[sg + 1][0], ring[sg + 1][1], shade * 0.8], [apex, Vector3.UP, shade * 1.05]]
 			for v in q:
-				crown.set_normal(v[1])
-				crown.set_color(Color(v[2], v[2], v[2]))
-				crown.add_vertex(v[0])
+				st.set_normal(v[1])
+				st.set_color(leaf * float(v[2]))
+				st.add_vertex(v[0])
 			if detail == 0:
 				# dark underside closing the skirt
 				var under := [[ring[sg + 1][0], Vector3.DOWN, 0.5], [ring[sg][0], Vector3.DOWN, 0.5], [Vector3(0, y0 + 0.5, 0), Vector3.DOWN, 0.5]]
 				for v in under:
-					crown.set_normal(v[1])
-					crown.set_color(Color(v[2], v[2], v[2]))
-					crown.add_vertex(v[0])
-	bark.set_material(trunk_mat)
-	bark.commit(mesh)
-	crown.set_material(_toon_leaf_mat(Color(0.09, 0.3, 0.2)))
-	crown.commit(mesh)
-	return mesh
+					st.set_normal(v[1])
+					st.set_color(leaf * float(v[2]))
+					st.add_vertex(v[0])
+	st.set_material(_toon_leaf_mat(Color.WHITE))
+	return st.commit()
 
 
 ## Cartoon bush: a few low leaf masses.
@@ -619,7 +740,7 @@ func _toon_bush(seed_v: int, size: float, leaf: Color) -> ArrayMesh:
 	for k in 3:
 		var s := size * r.randf_range(0.75, 1.1)
 		var off := Vector3(r.randf_range(-0.8, 0.8), 0, r.randf_range(-0.8, 0.8)) * size * (0.0 if k == 0 else 1.0)
-		_puff(st, off + Vector3(0, s * 0.55, 0), Vector3(s, s * 0.75, s), seed_v * 7.0 + k, r.randf_range(0.85, 1.05), 4, 7)
+		_puff(st, off + Vector3(0, s * 0.55, 0), Vector3(s, s * 0.75, s), seed_v * 7.0 + k, r.randf_range(0.85, 1.05), 3, 6)
 	st.set_material(_toon_leaf_mat(leaf))
 	st.commit(mesh)
 	return mesh
@@ -1226,8 +1347,13 @@ func _trees() -> void:
 		elif Mats.toon():
 			# full sculpt beside the road, simpler shapes up the hillside; shadows
 			# come from the simple shape so they cost little
-			var tl: Array = [[toon_lods[0][kind], 0.0, 80.0, 0], [toon_lods[1][kind], 80.0, 240.0, 0],
-				[toon_lods[2][kind], 240.0, 800.0, 0], [toon_lods[2][kind], 0.0, 110.0, 2]]
+			var q := Mats.quality
+			var r0: float = [35.0, 60.0, 90.0][q]
+			var r1: float = [110.0, 170.0, 240.0][q]
+			var r2: float = [300.0, 450.0, 650.0][q]
+			var tl: Array = [[toon_lods[0][kind], 0.0, r0, 0], [toon_lods[1][kind], r0, r1, 0], [toon_lods[2][kind], r1, r2, 0]]
+			if q > 0:
+				tl.append([toon_lods[2][kind], 0.0, [0.0, 60.0, 110.0][q], 2])
 			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35, tl])
 		else:
 			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35])
@@ -1266,7 +1392,7 @@ func _bushes() -> void:
 				var v := rng.randf_range(0.85, 1.2)
 				cols[k].append(Color(v, v, v))
 	for k in 2:
-		_pending.append([meshes[k], xf[k], cols[k], 120.0, 240.0 if Mats.toon() else 450.0, 0.55, 0.55])
+		_pending.append([meshes[k], xf[k], cols[k], 128.0, [110.0, 170.0, 240.0][Mats.quality] if Mats.toon() else 450.0, 0.55, 0.55])
 
 
 func _poles() -> void:
@@ -1471,6 +1597,9 @@ func _city() -> void:
 	else:
 		towns = [[finish + away * 3400.0, 1300.0, 5200, false], [finish + away * 2600.0 + side * 2200.0, 700.0, 1800, false],
 			[finish + away * 2900.0 - side * 2400.0, 800.0, 2000, false], [finish + away * 4600.0 + side * 900.0, 1100.0, 2400, false]]
+	# the town the road runs down to: lights dead ahead beyond the end of the straight
+	var end_dir: Vector3 = t.D[t.P.size() - 1]
+	towns.append([finish + end_dir * 2600.0, 800.0, 700, false, finish.y - 90.0])
 	for town in towns:
 		var c: Vector3 = town[0]
 		var radius: float = town[1]
@@ -1494,16 +1623,19 @@ func _city() -> void:
 				if t.dist_to_road(p) < 40.0:
 					continue
 				p.y = t.far_height(p.x, p.z) + 4.0 + rng.randf_range(0.0, 6.0)
+			elif town.size() > 4:
+				p.y = float(town[4]) + rng.randf_range(0.0, 14.0)
 			else:
 				p.y = floor_y + rng.randf_range(0.0, 6.0)
 			# big and bright enough to read from the road, not only from a lookout
-			var sz := rng.randf_range(16.0, 30.0) * (1.0 + c.distance_to(finish) / 5000.0)
+			var sz := rng.randf_range(11.0, 20.0) * (1.0 + c.distance_to(finish) / 5000.0)
 			# billboards ignore multimesh instance positions, so face each light at the pass instead
 			var to_pass := (finish - p)
 			to_pass.y = 0.0
 			xf.append(Transform3D(Basis.looking_at(to_pass.normalized(), Vector3.UP).scaled(Vector3(sz, sz, sz)), p))
 			var col: Color = palette[rng.randi() % palette.size()]
-			cols.append(col * rng.randf_range(1.1, 2.2))
+			# points of light in the distance, not a glare
+			cols.append(col * rng.randf_range(0.45, 0.95))
 	_mm(quad, xf, m, cols, 0.0, false)
 	if not t.towns_data.is_empty():
 		# warm light haze hanging over each real town
@@ -1616,7 +1748,7 @@ func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
 	_piece(_boxm(Vector3(0.36, 0.1, 0.6)), _emissive(col, 5.0), Transform3D(arm_basis, base + Vector3.UP * 7.3 + toward_road * 1.8))
 	var l := SpotLight3D.new()
 	l.light_color = col
-	l.light_energy = 3.5 * (0.4 if Mats.toon() else 1.0)
+	l.light_energy = 3.5 * (0.6 if Mats.toon() else 1.0)
 	l.spot_range = 16.0
 	l.spot_angle = 55.0
 	l.spot_attenuation = 0.9
@@ -1652,13 +1784,17 @@ func _vending(p: Vector3, facing: Vector3) -> void:
 	_piece(_boxm(Vector3(0.8, 0.12, 0.02)), _emissive(Color(1.0, 0.5, 0.2), 1.5), Transform3D(b, p + Vector3.UP * 0.75 + facing * 0.38))
 	var l := OmniLight3D.new()
 	l.light_color = Color(0.9, 0.95, 1.0)
-	l.light_energy = 1.2 * (0.4 if Mats.toon() else 1.0)
+	l.light_energy = 1.2 * (0.3 if Mats.toon() else 1.0)
 	l.omni_range = 6.0
 	l.position = p + Vector3.UP * 1.3 + facing * 1.0
 	_add(l)
 
 
 func _building(p: Vector3, facing: Vector3, size: Vector3, wall: Color, roof: Color, lit := true) -> void:
+	# nothing built along the last stretch: after the finish the road just
+	# runs on, straight and empty, toward the lights of the town
+	if t.S[t.nearest_index(p)] > t.finish_s - 350.0:
+		return
 	var b := Basis.looking_at(-facing, Vector3.UP)
 	_piece(_boxm(size), _mat(wall, 0.85), Transform3D(b, p + Vector3.UP * size.y * 0.5))
 	# low pitched roof
@@ -2457,7 +2593,7 @@ func _tunnels() -> void:
 				if (i - i0) % 15 == 0:
 					var l := OmniLight3D.new()
 					l.light_color = Color(1.0, 0.62, 0.3)
-					l.light_energy = 3.0 * (0.4 if Mats.toon() else 1.0)
+					l.light_energy = 3.0 * (0.25 if Mats.toon() else 1.0)
 					l.omni_range = 18.0
 					l.position = lp + Vector3.DOWN * 1.0 + t.R[i] * 1.0
 					_add(l)

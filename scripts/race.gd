@@ -31,6 +31,7 @@ func setup(c: Dictionary, m: int) -> void:
 func _ready() -> void:
 	var dawn := mode == Game.Mode.DAWN_DELIVERY
 	Race.build_environment(self, dawn)
+	Mats.crowd = Game.is_battle(mode)
 	track = Track.new()
 	add_child(track)
 	track.build(course)
@@ -140,6 +141,17 @@ static func build_environment(parent: Node, dawn: bool) -> void:
 	parent.add_child(light)
 
 
+## Cast shadows by graphics level: how far they reach and how many shadow
+## maps are drawn for them (each one draws the scene again).
+static func sun_shadows(light: DirectionalLight3D) -> void:
+	if Mats.hq():
+		return
+	var q := Mats.quality
+	light.shadow_enabled = true
+	light.directional_shadow_mode = [DirectionalLight3D.SHADOW_ORTHOGONAL, DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS, DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS][q]
+	light.directional_shadow_max_distance = [45.0, 85.0, 140.0][q]
+
+
 ## The cartoon look: flat cel lighting with crisp cast shadows, an anime
 ## night sky, and ink lines drawn over the whole picture.
 static func _cartoon(env: Environment, light: DirectionalLight3D, dawn: bool, parent: Node) -> void:
@@ -151,25 +163,26 @@ static func _cartoon(env: Environment, light: DirectionalLight3D, dawn: bool, pa
 		var sky := Sky.new()
 		sky.sky_material = night
 		env.sky = sky
-		env.ambient_light_color = Color(0.4, 0.5, 0.8)
-		env.ambient_light_energy = 1.15
-		light.light_color = Color(0.82, 0.88, 0.98)
-		light.light_energy = 1.3
-		env.fog_light_color = Color(0.06, 0.11, 0.24)
+		# a real night: dark blue, so headlights and street lamps do the lighting,
+		# but never so dark that the road ahead is lost
+		env.ambient_light_color = Color(0.3, 0.4, 0.75)
+		env.ambient_light_energy = 0.55
+		light.light_color = Color(0.7, 0.8, 1.0)
+		light.light_energy = 0.75
+		env.fog_light_color = Color(0.025, 0.045, 0.12)
 		env.fog_density = 0.0011
 	else:
 		env.ambient_light_energy = 0.9
 		light.light_energy = 1.4
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	env.fog_sky_affect = 0.0          # the sky stays crisp: stars, moon and clouds
-	light.shadow_enabled = true
-	light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	light.directional_shadow_max_distance = 160.0
+	light.add_to_group("sun")
+	sun_shadows(light)
 	light.shadow_blur = 0.4
 	light.shadow_opacity = 0.9
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.15
-	env.glow_enabled = true
+	env.glow_enabled = Mats.quality > 0
 	env.glow_intensity = 0.55
 	env.glow_bloom = 0.02
 	env.glow_hdr_threshold = 1.3

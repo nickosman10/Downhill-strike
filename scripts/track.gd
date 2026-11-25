@@ -29,7 +29,7 @@ var hairpins := 0
 var overlaps := 0
 var min_y := 0.0
 var walls := {}                # Vector2i(i, side) -> true where a retaining wall stands
-const RUN_OFF := 260.0         # extra road past the finish so you can slow down
+const RUN_OFF := 700.0         # after the finish: a long straight on down toward the town lights
 
 
 func build(c: Dictionary) -> void:
@@ -519,51 +519,63 @@ func _build_markings() -> void:
 func _build_guardrails() -> void:
 	# Japanese guard rail: a white-painted corrugated steel beam (two waves),
 	# bolted through spacer blocks to round posts every two metres.
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var lite := Mats.toon()       # drawn simply, and in stretches that can be culled
 	# beam cross-section (out from the posts toward the road, height): smooth double wave
 	var prof: Array = []
-	var segs := 16
+	var segs := 6 if lite else 16
 	for k in segs + 1:
 		var t := float(k) / segs
 		var wave := 0.5 - 0.5 * cos(t * TAU * 2.0)          # two crests
+		if lite:
+			wave = [0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0][k]
 		prof.append([0.035 + 0.05 * wave, lerpf(0.42, 0.74, t)])
 	var thick := 0.012
-	for side: float in [-1.0, 1.0]:
-		for i in range(1, P.size()):
-			if not (has_rail(i, side) and has_rail(i - 1, side)):
-				continue
-			var v0 := S[i - 1] / 1.5
-			var v1 := S[i] / 1.5
-			for face: float in [1.0, -1.0]:           # road face, then back face
-				for k in segs:
-					var pa: Array = prof[k]
-					var pb: Array = prof[k + 1]
-					var off := 0.0 if face > 0.0 else thick
-					var lat_a: float = side * (rail - pa[0] + off)
-					var lat_b: float = side * (rail - pb[0] + off)
-					var a0: Vector3 = P[i - 1] + R[i - 1] * lat_a + Vector3.UP * pa[1]
-					var a1: Vector3 = P[i - 1] + R[i - 1] * lat_b + Vector3.UP * pb[1]
-					var b0: Vector3 = P[i] + R[i] * lat_a + Vector3.UP * pa[1]
-					var b1: Vector3 = P[i] + R[i] * lat_b + Vector3.UP * pb[1]
-					# smooth normals from the neighbouring profile points
-					var na := _rail_normal(prof, k, side, i) * face
-					var nb := _rail_normal(prof, k + 1, side, i) * face
-					var quad := [[a0, na, Vector2(float(k) / segs, v0)], [b0, na, Vector2(float(k) / segs, v1)],
-						[b1, nb, Vector2(float(k + 1) / segs, v1)], [a1, nb, Vector2(float(k + 1) / segs, v0)]]
-					var order := [0, 1, 3, 3, 1, 2] if face * side > 0.0 else [0, 3, 1, 3, 2, 1]
-					for idx in order:
-						st.set_normal(quad[idx][1])
-						st.set_uv(quad[idx][2])
-						st.add_vertex(quad[idx][0])
 	var rail_mat := Mats.pbr("metal", 1.0, Color(0.92, 0.93, 0.94), 0.75)
 	rail_mat.metallic = 0.25
 	rail_mat.normal_scale = 0.35
 	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	st.set_material(rail_mat)
-	var mi := MeshInstance3D.new()
-	mi.mesh = st.commit()
-	add_child(mi)
+	var stretch := 60 if lite else P.size()
+	for c0 in range(1, P.size(), stretch):
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var any := false
+		for side: float in [-1.0, 1.0]:
+			for i in range(c0, mini(c0 + stretch, P.size())):
+				if not (has_rail(i, side) and has_rail(i - 1, side)):
+					continue
+				any = true
+				var v0 := S[i - 1] / 1.5
+				var v1 := S[i] / 1.5
+				for face: float in ([1.0] if lite else [1.0, -1.0]):           # road face, then back face
+					for k in segs:
+						var pa: Array = prof[k]
+						var pb: Array = prof[k + 1]
+						var off := 0.0 if face > 0.0 else thick
+						var lat_a: float = side * (rail - pa[0] + off)
+						var lat_b: float = side * (rail - pb[0] + off)
+						var a0: Vector3 = P[i - 1] + R[i - 1] * lat_a + Vector3.UP * pa[1]
+						var a1: Vector3 = P[i - 1] + R[i - 1] * lat_b + Vector3.UP * pb[1]
+						var b0: Vector3 = P[i] + R[i] * lat_a + Vector3.UP * pa[1]
+						var b1: Vector3 = P[i] + R[i] * lat_b + Vector3.UP * pb[1]
+						# smooth normals from the neighbouring profile points
+						var na := _rail_normal(prof, k, side, i) * face
+						var nb := _rail_normal(prof, k + 1, side, i) * face
+						var quad := [[a0, na, Vector2(float(k) / segs, v0)], [b0, na, Vector2(float(k) / segs, v1)],
+							[b1, nb, Vector2(float(k + 1) / segs, v1)], [a1, nb, Vector2(float(k + 1) / segs, v0)]]
+						var order := [0, 1, 3, 3, 1, 2] if face * side > 0.0 else [0, 3, 1, 3, 2, 1]
+						for idx in order:
+							st.set_normal(quad[idx][1])
+							st.set_uv(quad[idx][2])
+							st.add_vertex(quad[idx][0])
+		if not any:
+			continue
+		st.set_material(rail_mat)
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		if lite:
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.visibility_range_end = 520.0
+		add_child(mi)
 	# posts, spacer blocks, bolts and reflectors
 	var posts: Array[Transform3D] = []
 	var blocks: Array[Transform3D] = []
@@ -591,10 +603,27 @@ func _build_guardrails() -> void:
 	post.top_radius = 0.057
 	post.bottom_radius = 0.057
 	post.height = 1.1
-	post.radial_segments = 12
+	post.radial_segments = 6 if lite else 12
+	post.rings = 1
 	var post_mat := Mats.pbr("metal", 1.0, Color(0.9, 0.9, 0.91), 0.8)
 	post_mat.metallic = 0.25
 	post_mat.normal_scale = 0.3
+	var refl := CylinderMesh.new()
+	refl.top_radius = 0.035
+	refl.bottom_radius = 0.035
+	refl.height = 0.012
+	refl.radial_segments = 8 if lite else 16
+	refl.rings = 1
+	var refl_mat := _mat(Color(1.0, 0.6, 0.1), 0.2)
+	refl_mat.emission_enabled = true
+	refl_mat.emission = Color(1.0, 0.55, 0.1)
+	refl_mat.emission_energy_multiplier = 1.6
+	if lite:
+		# in stretches, drawn only near the car; the bolts are too small to matter
+		_multimesh_cells(post, posts, post_mat, 260.0)
+		_multimesh_cells(_box(Vector3(0.09, 0.2, 0.14)), blocks, post_mat, 160.0)
+		_multimesh_cells(refl, reflectors, refl_mat, 260.0)
+		return
 	add_child(_multimesh(post, posts, post_mat))
 	add_child(_multimesh(_box(Vector3(0.09, 0.2, 0.14)), blocks, post_mat))
 	var bolt := CylinderMesh.new()
@@ -605,16 +634,38 @@ func _build_guardrails() -> void:
 	var bolt_mat := _mat(Color(0.55, 0.55, 0.57), 0.35)
 	bolt_mat.metallic = 0.9
 	add_child(_multimesh(bolt, bolts, bolt_mat))
-	var refl := CylinderMesh.new()
-	refl.top_radius = 0.035
-	refl.bottom_radius = 0.035
-	refl.height = 0.012
-	refl.radial_segments = 16
-	var refl_mat := _mat(Color(1.0, 0.6, 0.1), 0.2)
-	refl_mat.emission_enabled = true
-	refl_mat.emission = Color(1.0, 0.55, 0.1)
-	refl_mat.emission_energy_multiplier = 1.6
 	add_child(_multimesh(refl, reflectors, refl_mat))
+
+
+## Many copies of a mesh, grouped into 120 m cells that are each drawn only
+## within `reach` metres of the camera.
+func _multimesh_cells(mesh: Mesh, xforms: Array[Transform3D], mat: Material, reach: float) -> void:
+	var cells := {}
+	for x in xforms:
+		var key := Vector2i(floori(x.origin.x / 120.0), floori(x.origin.z / 120.0))
+		if not cells.has(key):
+			cells[key] = []
+		cells[key].append(x)
+	for key in cells:
+		var list: Array = cells[key]
+		var centre := Vector3.ZERO
+		for x: Transform3D in list:
+			centre += x.origin
+		centre /= list.size()
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = mesh
+		mm.instance_count = list.size()
+		for k in list.size():
+			var x: Transform3D = list[k]
+			mm.set_instance_transform(k, Transform3D(x.basis, x.origin - centre))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = mat
+		mmi.position = centre
+		mmi.visibility_range_end = reach
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mmi)
 
 
 func _rail_normal(prof: Array, k: int, side: float, i: int) -> Vector3:
@@ -848,6 +899,9 @@ func terrain_height(x: float, z: float) -> float:
 	var nx: int = terrain_info.nx
 	var nz: int = terrain_info.nz
 	var cell: float = terrain_info.cell
+	if not far_h.is_empty() and (x < terrain_info.origin[0] or z < terrain_info.origin[1]
+			or x > terrain_info.origin[0] + (nx - 1) * cell or z > terrain_info.origin[1] + (nz - 1) * cell):
+		return _far_surface(x, z)      # past the edge of the detailed ground
 	var fx := clampf((x - terrain_info.origin[0]) / cell, 0.0, nx - 1.001)
 	var fz := clampf((z - terrain_info.origin[1]) / cell, 0.0, nz - 1.001)
 	var i := int(fx)
@@ -901,6 +955,29 @@ func _build_terrain() -> void:
 				if inner.has_point(Vector2(fx, fz)):
 					var fk := fj * int(far_info.nx) + fi
 					far_h[fk] = minf(far_h[fk], terrain_height(fx, fz) - 12.0)
+		# the long straight after the finish runs out past the detailed ground:
+		# lay the coarse ground just under the road there, like an embankment
+		var nearest := {}
+		var fcell: float = far_info.cell
+		for i in range(0, P.size(), 3):
+			if near.grow(-90.0).has_point(Vector2(P[i].x, P[i].z)):
+				continue
+			var ci := int(round((P[i].x - far_info.origin[0]) / fcell))
+			var cj := int(round((P[i].z - far_info.origin[1]) / fcell))
+			for dj in range(-2, 3):
+				for di in range(-2, 3):
+					var gi := ci + di
+					var gj := cj + dj
+					if gi < 0 or gj < 0 or gi >= int(far_info.nx) or gj >= int(far_info.nz):
+						continue
+					var vx: float = far_info.origin[0] + gi * fcell
+					var vz: float = far_info.origin[1] + gj * fcell
+					var d2 := Vector2(vx - P[i].x, vz - P[i].z).length()
+					var fk2 := gj * int(far_info.nx) + gi
+					if d2 < 64.0 and d2 < float(nearest.get(fk2, 1.0e9)):
+						nearest[fk2] = d2
+						# under the detailed ground it only ever goes down, out of sight
+						far_h[fk2] = minf(far_h[fk2], P[i].y - 2.0) if inner.has_point(Vector2(vx, vz)) else P[i].y - 2.0
 		_grid_mesh(far_info, far_h, mat, near.grow(-far_info.cell))
 	if not lake_info.is_empty():
 		var water := MeshInstance3D.new()

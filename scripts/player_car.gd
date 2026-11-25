@@ -387,9 +387,12 @@ func physics_step(dt: float) -> void:
 	if not control_enabled and hold_brake:
 		vel = Vector2.ZERO
 	if auto_stop:
-		vel = vel.move_toward(Vector2.ZERO, 8.0 * dt)
-		if s > track.length - 6.0:
-			vel = Vector2.ZERO
+		# the race is over but the drive isn't: ease down to a cruise and roll on
+		# along the straight toward the town, stopping only where the road ends
+		var room := track.length - 12.0 - s
+		var cruise := minf(15.0, sqrt(maxf(room, 0.0) * 5.0))
+		var sp := vel.length()
+		vel = vel.move_toward(tdir * cruise, (7.0 if sp > cruise else 2.5) * dt)
 
 	# --- move & collide with guardrails
 	pos.x += vel.x * dt

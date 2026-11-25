@@ -314,7 +314,8 @@ func _build_main() -> void:
 		var gfx := _button("GRAPHICS: " + Game.QUALITY_NAMES[Game.quality], 22, 54)
 		gfx.pressed.connect(func():
 			Game.set_quality((Game.quality + 1) % 3)
-			gfx.text = "GRAPHICS: " + Game.QUALITY_NAMES[Game.quality])
+			# the scenery is rebuilt at the new level
+			get_tree().reload_current_scene())
 		col.add_child(gfx)
 		# art style: the cartoon look, or the heavier photo-style renderer
 		if Mats.has_realistic():
@@ -534,7 +535,8 @@ func _build_cars() -> void:
 	right.add_child(svc)
 	show_vp = SubViewport.new()
 	show_vp.own_world_3d = true
-	show_vp.msaa_3d = Viewport.MSAA_4X
+	show_vp.msaa_3d = Viewport.MSAA_2X if Game.quality == 2 else Viewport.MSAA_DISABLED
+	show_vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	svc.add_child(show_vp)
 	_build_showroom()
 	var info := _panel()
@@ -800,6 +802,7 @@ func _build_backdrop() -> void:
 	backdrop = Node3D.new()
 	add_child(backdrop)
 	Race.build_environment(backdrop, false)
+	Mats.crowd = false
 	bd_track = Track.new()
 	backdrop.add_child(bd_track)
 	bd_track.build(courses[0])

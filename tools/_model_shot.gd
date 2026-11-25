@@ -1,5 +1,5 @@
 extends Node
-## Preview of the 3D trees: godot tools/_model_shot.tscn -- out.png
+## Preview of the spectator figures: godot tools/_model_shot.tscn -- out.png
 func _ready() -> void:
 	get_window().size = Vector2i(1600, 800)
 	var env := Environment.new()
@@ -16,17 +16,27 @@ func _ready() -> void:
 	var sc := Scenery.new()
 	sc.trunk_mat = Mats.pbr("bark", 1.0, Color(0.75, 0.7, 0.65))
 	var x := 0.0
-	for item in [sc._ph_tree("broadleaf_a", 6.0), sc._ph_tree("broadleaf_a_m", 6.0), sc._ph_tree("broadleaf_a_l", 6.0), sc._photo_tree("broadleaf", 9.7), sc._ph_tree("fir_a", 12.0), sc._ph_tree("fir_a_m", 12.0), sc._ph_tree("fir_a_l", 12.0), sc._photo_tree("fir", 19.0), sc._ph_tree("fir_b", 9.0), sc._ph_tree("fir_b_m", 9.0), sc._ph_tree("fir_b_l", 9.0), sc._photo_tree("fir", 14.1)]:
+	for k in 9:
 		var mi := MeshInstance3D.new()
-		mi.mesh = item
+		mi.mesh = sc._person_mesh(40 + k)
 		mi.position = Vector3(x, 0, 0)
+		mi.rotation.y = PI + (k - 4) * 0.12
 		add_child(mi)
-		x += 13.0
+		x += 0.9
+	var ink := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(2, 2)
+	ink.mesh = quad
+	var im := ShaderMaterial.new()
+	im.shader = load("res://shaders/outline.gdshader")
+	ink.material_override = im
+	ink.extra_cull_margin = 16384.0
+	add_child(ink)
 	var cam := Camera3D.new()
 	add_child(cam)
-	cam.position = Vector3(71, 8, 70)
-	cam.look_at(Vector3(71, 9, 0))
-	cam.fov = 62
+	cam.position = Vector3(3.6, 1.3, 6.2)
+	cam.look_at(Vector3(3.6, 0.95, 0))
+	cam.fov = 50
 	for i in 8:
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw

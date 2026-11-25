@@ -42,6 +42,49 @@ func _ready() -> void:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	get_window().size = Vector2i(1920, 1080)
+	if args.size() > 1 and args[1] == "tris":
+		# where the triangles are: every mesh in a race, biggest first
+		var race := Race.new()
+		race.setup(Courses.all()[0], 1)
+		add_child(race)
+		await _frames(5)
+		var rows: Array = []
+		for n in race.find_children("*", "GeometryInstance3D", true, false):
+			var mesh: Mesh = null
+			var count := 1
+			if n is MeshInstance3D:
+				mesh = n.mesh
+			elif n is MultiMeshInstance3D and n.multimesh:
+				mesh = n.multimesh.mesh
+				count = n.multimesh.instance_count
+			if mesh == null:
+				continue
+			var tris := 0
+			for i in mesh.get_surface_count():
+				var arr := mesh.surface_get_arrays(i)
+				var idx = arr[Mesh.ARRAY_INDEX]
+				tris += (idx.size() if idx != null and idx.size() > 0 else (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()) / 3
+			var mat_name := ""
+			var m0: Material = n.material_override if n.material_override else mesh.surface_get_material(0)
+			if m0 is ShaderMaterial and m0.shader:
+				mat_name = m0.shader.resource_path.get_file()
+			elif m0 is StandardMaterial3D:
+				mat_name = "std %s %s" % [str(m0.albedo_color).substr(0, 18), m0.albedo_texture.resource_path.get_file() if m0.albedo_texture else ""]
+			rows.append([tris * count, tris, count, n.get_class(), mat_name, n.visibility_range_end, n.cast_shadow, mesh.get_aabb().size.length()])
+		rows.sort_custom(func(a, b): return a[0] > b[0])
+		var total := 0
+		var groups := {}
+		for r in rows:
+			total += r[0]
+			var key := "%s | %s | vis %d | shadow %d | %s" % [r[3], r[4], int(r[5]), r[6], "big" if r[7] > 400.0 else "local"]
+			groups[key] = groups.get(key, 0) + r[0]
+		print("[tris] total in scene ", total, " nodes ", rows.size())
+		var keys := groups.keys()
+		keys.sort_custom(func(a, b): return groups[a] > groups[b])
+		for k in keys.slice(0, 28):
+			print("[tris] %9d  %s" % [groups[k], k])
+		get_tree().quit()
+		return
 	if args.size() > 6 and args[1] == "at":
 		# any spot: at <name> <course> <mode> <position 0-1> <camera> [hud]
 		await _shot([args[2], int(args[3]), int(args[4]), float(args[5]), args[6], args.size() > 7])
@@ -129,6 +172,16 @@ func _shot(spec: Array) -> void:
 		while absf(tr.curvature_at(s)) < 1.0 / 40.0 and s < tr.length - 80.0:
 			s += 2.0
 		s -= 4.0
+	if String(spec[0]).begins_with("crowd"):
+		# go to the first group of spectators
+		for n in race.find_children("*", "MultiMeshInstance3D", true, false):
+			var mm: MultiMesh = n.multimesh
+			if mm and mm.instance_count > 0 and mm.mesh.surface_get_material(0) is ShaderMaterial \
+					and (mm.mesh.surface_get_material(0) as ShaderMaterial).shader.resource_path.ends_with("crowd_toon.gdshader"):
+				var at: Vector3 = n.global_transform * mm.get_instance_transform(0).origin
+				if tr.S[tr.nearest_index(at)] > tr.length * spec[3]:
+					s = tr.S[tr.nearest_index(at)] - 22.0
+					break
 	var k := tr.curvature_at(s + 6.0)
 	var dir := signf(k) if absf(k) > 0.001 else 1.0
 	var lat := -dir * (tr.hw * 0.35)

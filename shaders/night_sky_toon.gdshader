@@ -2,9 +2,9 @@ shader_type sky;
 
 // Anime night sky: deep indigo falling to a teal glow on the horizon, a big
 // bright moon with a halo, crisp stars and flat painted cloud banks.
-uniform vec3 top_col : source_color = vec3(0.012, 0.02, 0.09);
-uniform vec3 mid_col : source_color = vec3(0.03, 0.07, 0.24);
-uniform vec3 horizon_col : source_color = vec3(0.07, 0.17, 0.36);
+uniform vec3 top_col : source_color = vec3(0.006, 0.01, 0.05);
+uniform vec3 mid_col : source_color = vec3(0.015, 0.03, 0.12);
+uniform vec3 horizon_col : source_color = vec3(0.035, 0.08, 0.2);
 uniform vec3 moon_dir = vec3(-0.35, 0.55, 0.75);
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -50,8 +50,8 @@ void sky() {
 	vec2 cuv = d.xz / max(d.y + 0.18, 0.05);
 	float c = fbm(cuv * 0.9 + vec2(TIME * 0.004, 0.0));
 	float cloud = smoothstep(0.56, 0.58, c) * smoothstep(0.02, 0.12, d.y) * (1.0 - smoothstep(0.45, 0.8, d.y));
-	vec3 cloud_col = mix(vec3(0.05, 0.08, 0.2), vec3(0.14, 0.2, 0.4), smoothstep(0.64, 0.66, c));
-	cloud_col += vec3(0.3, 0.4, 0.6) * pow(max(m, 0.0), 6.0) * 0.5;
+	vec3 cloud_col = mix(vec3(0.025, 0.04, 0.11), vec3(0.07, 0.1, 0.22), smoothstep(0.64, 0.66, c));
+	cloud_col += vec3(0.3, 0.4, 0.6) * pow(max(m, 0.0), 6.0) * 0.3;
 	col = mix(col, cloud_col, cloud * 0.9);
 	if (d.y < 0.0) {
 		col = mix(horizon_col, vec3(0.02, 0.04, 0.1), clamp(-d.y * 4.0, 0.0, 1.0));

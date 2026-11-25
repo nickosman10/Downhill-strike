@@ -33,6 +33,10 @@ static func tex(name: String, kind: String) -> Texture2D:
 	return _cache[path]
 
 
+## Graphics level 0-2 (set by Game): how far detail is drawn, shadows, resolution.
+static var quality := 1
+## Whether onlookers line the bends (set by the race: battles draw a gallery).
+static var crowd := false
 static var _paint: ImageTexture
 static var moon_dir := Vector3(-0.35, 0.55, 0.75)
 
@@ -77,6 +81,7 @@ static func toonify_node(n: Node) -> void:
 	if not is_instance_valid(n) or not n is GeometryInstance3D:
 		return
 	var g := n as GeometryInstance3D
+	_shadow_budget(g)
 	if g.material_override is StandardMaterial3D:
 		toonify(g.material_override)
 	var mesh: Mesh = null
@@ -94,6 +99,26 @@ static func toonify_node(n: Node) -> void:
 			var sm := mesh.surface_get_material(i)
 			if sm is StandardMaterial3D:
 				toonify(sm)
+
+
+## Shadows are the dearest thing to draw, since everything that casts one is
+## drawn again for each shadow map. Course-long meshes (road, rails, lines)
+## and big unculled batches gain nothing from casting, so they don't.
+static func _shadow_budget(g: GeometryInstance3D) -> void:
+	if g.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY:
+		return
+	if g is MultiMeshInstance3D:
+		var mm := (g as MultiMeshInstance3D).multimesh
+		if mm and mm.instance_count > 40 and g.visibility_range_end <= 0.0:
+			g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	elif g is MeshInstance3D and (g as MeshInstance3D).mesh is ArrayMesh:
+		var mesh := (g as MeshInstance3D).mesh as ArrayMesh
+		if mesh.get_aabb().size.length() > 260.0:
+			var verts := 0
+			for i in mesh.get_surface_count():
+				verts += mesh.surface_get_array_len(i)
+			if verts > 20000:
+				g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 ## A full PBR material. `scale` repeats the texture across the mesh's UVs.
