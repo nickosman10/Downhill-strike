@@ -104,7 +104,7 @@ func _ball_at(st: SurfaceTool, c: Vector3, rad: Vector3, col: Color) -> void:
 func _person_mesh(seed_v: int) -> ArrayMesh:
 	var r := RandomNumberGenerator.new()
 	r.seed = seed_v
-	var tops := [Color(0.85, 0.2, 0.2), Color(0.2, 0.35, 0.8), Color(0.95, 0.85, 0.3), Color(0.9, 0.9, 0.92), Color(0.2, 0.55, 0.35), Color(0.55, 0.3, 0.7), Color(0.15, 0.15, 0.2), Color(0.95, 0.55, 0.2)]
+	var tops := [Color(0.85, 0.2, 0.2), Color(0.2, 0.35, 0.8), Color(0.95, 0.85, 0.3), Color(0.9, 0.9, 0.92), Color(0.2, 0.55, 0.35), Color(0.55, 0.3, 0.7), Color(0.3, 0.75, 0.8), Color(0.95, 0.55, 0.2)]
 	var legs := [Color(0.16, 0.2, 0.4), Color(0.12, 0.12, 0.15), Color(0.5, 0.42, 0.3), Color(0.35, 0.38, 0.45)]
 	var hairs := [Color(0.08, 0.06, 0.06), Color(0.25, 0.14, 0.08), Color(0.55, 0.35, 0.12), Color(0.12, 0.1, 0.2)]
 	var skin := Color(0.96, 0.78, 0.64)
@@ -170,14 +170,14 @@ func _spectators() -> void:
 			var probe: Vector3 = t.P[apex] + t.R[apex] * side * (t.rail + 1.8)
 			if absf(t.terrain_height(probe.x, probe.z) - t.P[apex].y) > 1.3:
 				continue
-			var count := rng.randi_range(4, 9)
+			var count := rng.randi_range(6, 11)
 			for c in count:
 				var at := clampi(apex + rng.randi_range(-7, 7), 1, n - 2)
-				var p: Vector3 = t.P[at] + t.R[at] * side * (t.rail + rng.randf_range(0.8, 2.4))
+				var p: Vector3 = t.P[at] + t.R[at] * side * (t.rail + rng.randf_range(0.65, 1.9))
 				var ground := t.terrain_height(p.x, p.z)
 				if absf(ground - t.P[at].y) > 1.3 or _blocked(p, 0.35):
 					continue
-				p.y = maxf(ground, t.P[at].y - 0.3) - 0.02
+				p.y = maxf(ground, t.P[at].y - 0.12) - 0.02
 				var face := Basis.looking_at(t.R[at] * side, Vector3.UP).rotated(Vector3.UP, rng.randf_range(-0.5, 0.5))
 				var sc := rng.randf_range(0.94, 1.08)
 				xf[rng.randi() % meshes.size()].append(Transform3D(face.scaled(Vector3(sc, sc, sc)), p))

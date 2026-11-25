@@ -5,6 +5,8 @@ extends Node
 var out_dir := "user://beauty"
 
 # [file, course index, mode, position along course (0..1), camera, show hud]
+var crowd_pos := Vector3.ZERO
+
 const SHOTS := [
 	["02_haruna_drift", 0, 1, 0.84, "front_low", false],
 	["03_haruna_battle", 0, 1, 0.55, "chase_high", true],
@@ -180,7 +182,8 @@ func _shot(spec: Array) -> void:
 					and (mm.mesh.surface_get_material(0) as ShaderMaterial).shader.resource_path.ends_with("crowd_toon.gdshader"):
 				var at: Vector3 = n.global_transform * mm.get_instance_transform(0).origin
 				if tr.S[tr.nearest_index(at)] > tr.length * spec[3]:
-					s = tr.S[tr.nearest_index(at)] - 22.0
+					s = tr.S[tr.nearest_index(at)] - 3.0
+					crowd_pos = at
 					break
 	var k := tr.curvature_at(s + 6.0)
 	var dir := signf(k) if absf(k) > 0.001 else 1.0
@@ -235,6 +238,16 @@ func _shot(spec: Array) -> void:
 			cam.global_position = p + right * dir * 14.0 - fwd * 6.0 + Vector3.UP * 6.0
 			cam.look_at(p + fwd * 30.0 - right * dir * 20.0 + Vector3.DOWN * 25.0, Vector3.UP)
 			cam.fov = 58.0
+		"crowd":
+			# from the road, a few metres back, looking at the people as the cars go by
+			var ci := tr.nearest_index(crowd_pos)
+			var along: Vector3 = tr.D[ci]
+			var to_road: Vector3 = tr.P[ci] - crowd_pos
+			to_road.y = 0.0
+			to_road = to_road.normalized()
+			cam.global_position = crowd_pos + to_road * 5.5 - along * 8.0 + Vector3.UP * 2.0
+			cam.look_at(crowd_pos + along * 3.0 + Vector3.UP * 1.0, Vector3.UP)
+			cam.fov = 55.0
 		"top":
 			cam.global_position = p + Vector3.UP * 55.0 - fwd * 25.0 + right * 20.0
 			cam.look_at(p + fwd * 15.0, Vector3.UP)

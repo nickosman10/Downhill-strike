@@ -13,6 +13,8 @@ void vertex() {
 
 void fragment() {
 	ALBEDO = COLOR.rgb;
+	// drawn figures keep their colours at night instead of sinking into the dark
+	EMISSION = COLOR.rgb * 0.38;
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.0;
 }
