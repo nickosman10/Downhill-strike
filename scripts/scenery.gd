@@ -36,6 +36,7 @@ func build(track: Track) -> void:
 	trunk_mat = Mats.pbr("bark", 1.0, Color(0.75, 0.7, 0.65))
 	_walls()
 	t.walls = wall_sides
+	t.rebuild_corridor()
 	_tunnels()
 	_slope_protection()
 	# keep the mountain behind the walls and frames, then plant on the result
@@ -59,6 +60,7 @@ func build(track: Track) -> void:
 		_red_pavement()
 	if t.style.get("chevron_boards", false):
 		_chevron_rows()
+	_seat_objects()
 	_spectators()
 	if Mats.toon():
 		_road_details()
@@ -396,7 +398,7 @@ func _rocks() -> void:
 				var size := rng.randf_range(0.3, 1.1)
 				var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + rng.randf_range(1.4, 8.0) + size) + t.D[i] * rng.randf_range(-2.0, 2.0)
 				p.y = t.terrain_height(p.x, p.z)
-				if absf(p.y - t.P[i].y) < 7.0 and t.dist_to_road(p) > t.rail + 1.0 + size and not _blocked(p, size):
+				if absf(p.y - t.P[i].y) < 7.0 and t.dist_to_road(p) > t.rail + 1.0 + size and not _blocked(p, size) and not _in_wall(p, size + 0.3):
 					place.call(p, size)
 			# crags where the hillside is steep
 			if rng.randf() < 0.1:
@@ -405,7 +407,7 @@ func _rocks() -> void:
 				var steep := absf(t.terrain_height(p2.x + 4.0, p2.z) - t.terrain_height(p2.x - 4.0, p2.z)) + absf(t.terrain_height(p2.x, p2.z + 4.0) - t.terrain_height(p2.x, p2.z - 4.0))
 				p2.y = h0
 				var big := rng.randf_range(1.8, 4.2)
-				if steep > 4.5 and t.dist_to_road(p2) > t.rail + 3.0 + big and not _blocked(p2, big):
+				if steep > 4.5 and t.dist_to_road(p2) > t.rail + 3.0 + big and not _blocked(p2, big) and not _in_wall(p2, big + 0.3):
 					place.call(p2, big)
 	for k in 3:
 		_mm_chunked(meshes[k], xf[k], null, [], 128.0, [200.0, 300.0, 420.0][Mats.quality])
@@ -441,13 +443,23 @@ func _grass_tufts() -> void:
 			for c in 2:
 				var p: Vector3 = t.P[i] + t.R[i] * side * (t.rail + rng.randf_range(0.95, 4.5)) + t.D[i] * rng.randf_range(-1.0, 1.0)
 				p.y = t.terrain_height(p.x, p.z) - 0.03
-				if absf(p.y - t.P[i].y) > 4.0 or t.dist_to_road(p) < t.rail + 0.9 or _blocked(p, 0.15):
+				if absf(p.y - t.P[i].y) > 4.0 or t.dist_to_road(p) < t.rail + 0.9 or _blocked(p, 0.15) or _in_wall(p, 0.4):
 					continue
 				var sc := rng.randf_range(0.8, 1.9)
 				xf.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(sc, sc * rng.randf_range(0.8, 1.3), sc)), p))
 				var v := rng.randf_range(0.85, 1.15)
 				cols.append(Color(v, v, v * 0.9))
 	_mm_chunked(mesh, xf, null, cols, 128.0, [60.0, 80.0, 110.0][Mats.quality])
+
+
+## Whether a spot lies in a retaining wall (its leaning face and cap), plus a margin.
+func _in_wall(p: Vector3, margin: float) -> bool:
+	var i := t.nearest_index(p)
+	var side := 1 if (p - t.P[i]).dot(t.R[i]) > 0.0 else -1
+	var reach := 0.0
+	for k in range(maxi(i - 3, 0), mini(i + 4, t.P.size())):
+		reach = maxf(reach, float(t.wall_reach.get(Vector2i(k, side), 0.0)))
+	return reach > 0.0 and t.dist_to_road(p) < t.rail + reach + margin
 
 
 ## Register an object's footprint (centre, radius on the ground plane).
@@ -515,6 +527,22 @@ func _plant_pending() -> void:
 			var sc: float = xfs[k].basis.get_scale().x
 			if _blocked(o, clear * clampf(sc, 0.8, 1.6)):
 				continue
+			var road_d := t.dist_to_road(o)
+			# never on the road, its gutters or the strip up to the rail
+			if road_d < t.rail + (0.9 if clear > 1.0 else 0.5):
+				continue
+			# nor in a retaining wall: stay behind the back of its leaning face
+			if _in_wall(o, 1.0 if clear > 1.0 else 0.5):
+				continue
+			# seat it on the ground as finally shaped (walls and cuts lower it after planning)
+			var ground := t.terrain_height(o.x, o.z)
+			if absf(o.y + 0.35 - ground) > 0.25:
+				o.y = ground - 0.35
+				xfs[k] = Transform3D(xfs[k].basis, o)
+			if clear > 1.0 and road_d < t.hw + 6.0 * sc:
+				# a tree rooted well below the road would hang its crown at car height
+				if o.y + 3.3 * xfs[k].basis.get_scale().y < t.P[ti].y + 3.6:
+					continue
 			keep_x.append(xfs[k])
 			keep_c.append(cols[k] if cols.size() > k else Color.WHITE)
 			# later trunks and bushes keep clear of this one
@@ -1197,6 +1225,11 @@ func _walls() -> void:
 			if t.dist_to_road(wall_mid) < t.rail + 0.5:
 				continue
 			wall_sides[Vector2i(i, int(side))] = true
+			# how far back the leaning face and its cap reach from the rail line
+			var lean := 0.9 + maxf(maxf(h0, h1), 0.3) * 0.12 + 0.5
+			for wk: int in [i - 1, i]:
+				var key := Vector2i(wk, int(side))
+				t.wall_reach[key] = maxf(float(t.wall_reach.get(key, 0.0)), lean)
 			var a := t.P[i - 1] + t.R[i - 1] * lat
 			var b := t.P[i] + t.R[i] * lat
 			var u0 := t.S[i - 1] / 3.0
@@ -1749,9 +1782,53 @@ func _emissive(c: Color, energy := 2.0) -> StandardMaterial3D:
 	return m
 
 
+var _pieces: Array[MeshInstance3D] = []
+
+
+## After everything is placed: shape the ground to what stands on it. Where
+## the hillside falls away under a shelter, sign or lamp the ground is brought
+## up to its foot; where the hillside would swallow one it is cut back.
+func _seat_objects() -> void:
+	var lowest := {}
+	var spot := {}
+	for mi in _pieces:
+		if not is_instance_valid(mi) or mi.mesh == null:
+			continue
+		var ab: AABB = mi.transform * mi.mesh.get_aabb()
+		if maxf(ab.size.x, ab.size.z) > 16.0:
+			continue
+		var c := ab.get_center()
+		var key := Vector2i(floori(c.x / 2.5), floori(c.z / 2.5))
+		if ab.position.y < float(lowest.get(key, 1.0e9)):
+			lowest[key] = ab.position.y
+			spot[key] = c
+	var cut := PackedVector3Array()
+	var fill := PackedVector3Array()
+	for key: Vector2i in lowest:
+		# the foot of whatever stands here (a sign's panel stands on its pole next door)
+		var foot := 1.0e9
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				foot = minf(foot, float(lowest.get(key + Vector2i(dx, dz), 1.0e9)))
+		var c: Vector3 = spot[key]          # where the thing actually stands
+		var d := t.dist_to_road(c)
+		if d < t.rail + 0.9 or d > 60.0:
+			continue
+		var i := t.nearest_index(c)
+		if t.in_tunnel(i):
+			continue
+		var ground := t.terrain_height(c.x, c.z)
+		if ground < foot - 0.7:
+			fill.append(Vector3(c.x, foot - 0.15, c.z))
+		elif ground > foot + 1.2:
+			cut.append(Vector3(c.x, foot + 0.2, c.z))
+	t.cap_terrain(cut, fill)
+
+
 func _piece(mesh: Mesh, mat: Material, xf: Transform3D) -> MeshInstance3D:
 	_register_mesh(mesh, xf)
 	var mi := MeshInstance3D.new()
+	_pieces.append(mi)
 	mi.mesh = mesh
 	mi.material_override = mat
 	mi.transform = xf
@@ -2274,6 +2351,13 @@ func _real_features() -> void:
 			pts.remove_at(pts.size() - 1)
 		var tris := Geometry2D.triangulate_polygon(pts)
 		if tris.is_empty():
+			continue
+		# not across the road (the long straight after the finish runs through real car parks)
+		var across := false
+		for v in pts:
+			if t.dist_to_road(Vector3(v.x, 0.0, v.y)) < t.rail + 0.4:
+				across = true
+		if across:
 			continue
 		var y := _poly_y(poly) + 0.05
 		for p in poly:

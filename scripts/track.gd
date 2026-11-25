@@ -29,6 +29,7 @@ var hairpins := 0
 var overlaps := 0
 var min_y := 0.0
 var walls := {}                # Vector2i(i, side) -> true where a retaining wall stands
+var wall_reach := {}           # Vector2i(i, side) -> metres beyond the rail that a leaning wall's face covers
 const RUN_OFF := 700.0         # after the finish: a long straight on down toward the town lights
 
 
@@ -1070,13 +1071,17 @@ func _corridor_mask(mat: ShaderMaterial) -> void:
 		var tunnel := in_tunnel(i) or in_tunnel(i + 1)
 		var seg := S[i + 1] - S[i]
 		var steps := maxi(1, int(ceil(seg / 0.4)))
-		for k in steps + 1:
+		for k in range(-6 if i == 0 else 0, steps + 1):
 			var f := float(k) / steps
-			var c := P[i].lerp(P[i + 1], f)
+			var c := P[i].lerp(P[i + 1], f)       # (a little before the very first point too)
 			var r := R[i].lerp(R[i + 1], f).normalized()
-			var across := int(ceil(2.0 * half / 0.4))
+			# a retaining wall leans back: the ground under its sloping face is cut
+			# away as well, or the hillside would show in front of the stones
+			var hl := maxf(half, rail + maxf(float(wall_reach.get(Vector2i(i, -1), 0.0)), float(wall_reach.get(Vector2i(i + 1, -1), 0.0))))
+			var hr := maxf(half, rail + maxf(float(wall_reach.get(Vector2i(i, 1), 0.0)), float(wall_reach.get(Vector2i(i + 1, 1), 0.0))))
+			var across := int(ceil((hl + hr) / 0.4))
 			for m in across + 1:
-				var l := lerpf(-half, half, float(m) / across)
+				var l := lerpf(-hl, hr, float(m) / across)
 				var q := c + r * l
 				var px := int(q.x - ox)
 				var pz := int(q.z - oz)
@@ -1101,6 +1106,12 @@ func _corridor_mask(mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("use_corridor", 1.0)
 
 
+## Redo the road cut-out once the walls are known.
+func rebuild_corridor() -> void:
+	if _terrain_mat:
+		_corridor_mask(_terrain_mat as ShaderMaterial)
+
+
 var _terrain_nodes: Array[Node] = []
 var _terrain_mat: Material
 
@@ -1108,25 +1119,28 @@ var _terrain_mat: Material
 ## Lower the hillside under walls and slope frames: each cap (x, z, max height)
 ## pulls down the four terrain vertices of the cell it falls in, so the drawn
 ## surface at that spot can't rise above it. Rebuilds the near terrain mesh.
-func cap_terrain(caps: PackedVector3Array) -> void:
-	if terrain_h.is_empty() or caps.is_empty():
+func cap_terrain(caps: PackedVector3Array, fills := PackedVector3Array()) -> void:
+	if terrain_h.is_empty() or (caps.is_empty() and fills.is_empty()):
 		return
 	var nx: int = terrain_info.nx
 	var nz: int = terrain_info.nz
 	var cell: float = terrain_info.cell
 	var ox: float = terrain_info.origin[0]
 	var oz: float = terrain_info.origin[1]
-	for c in caps:
-		var i := int(floor((c.x - ox) / cell))
-		var j := int(floor((c.z - oz) / cell))
-		for dj in 2:
-			for di in 2:
-				var gi := i + di
-				var gj := j + dj
-				if gi < 0 or gj < 0 or gi >= nx or gj >= nz:
-					continue
-				var k := gj * nx + gi
-				terrain_h[k] = minf(terrain_h[k], c.y)
+	# fills first (ground brought up under something that would hang in the
+	# air), then caps, so a cap always wins
+	for pass_i in 2:
+		for c in (fills if pass_i == 0 else caps):
+			var i := int(floor((c.x - ox) / cell))
+			var j := int(floor((c.z - oz) / cell))
+			for dj in 2:
+				for di in 2:
+					var gi := i + di
+					var gj := j + dj
+					if gi < 0 or gj < 0 or gi >= nx or gj >= nz:
+						continue
+					var k := gj * nx + gi
+					terrain_h[k] = maxf(terrain_h[k], c.y) if pass_i == 0 else minf(terrain_h[k], c.y)
 	for n in _terrain_nodes:
 		n.queue_free()
 	_terrain_nodes.clear()
@@ -1166,8 +1180,10 @@ func terrain_faults() -> Array:
 	var last := -100.0
 	for i in P.size():
 		var fault := ""
-		var l := -half
-		while l <= half and fault == "":
+		# on a wall side the check runs right under the leaning face
+		var l := -maxf(half, rail + float(wall_reach.get(Vector2i(i, -1), 0.0)) - 0.15)
+		var l_end := maxf(half, rail + float(wall_reach.get(Vector2i(i, 1), 0.0)) - 0.15)
+		while l <= l_end and fault == "":
 			var q := P[i] + R[i] * l
 			var road_y := P[i].y
 			var tunnel := in_tunnel(i) or in_tunnel(mini(i + 1, P.size() - 1)) or in_tunnel(maxi(i - 1, 0))
