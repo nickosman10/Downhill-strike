@@ -41,10 +41,8 @@ var show_root: Node3D
 var show_car: CarModel
 var show_cam: Camera3D
 var orbit_yaw := 0.7
-var orbit_pitch := 0.22
-var orbit_dist := 6.2
-var _dragging := false
-var _idle := 0.0
+var orbit_pitch := 0.2
+var orbit_dist := 4.9
 var garage_idx := 0
 # music
 var now_label: Label
@@ -508,7 +506,7 @@ func _build_campaign() -> void:
 
 func _build_cars() -> void:
 	var v := _screen("cars")
-	_header(v, "GARAGE", "Drag the car to look around it · scroll to zoom")
+	_header(v, "GARAGE", "Pick the car you race")
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 22)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -531,27 +529,13 @@ func _build_cars() -> void:
 	svc.stretch = true
 	svc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	svc.custom_minimum_size = Vector2(0, 400)
-	svc.mouse_filter = Control.MOUSE_FILTER_STOP
-	svc.gui_input.connect(_showroom_input)
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	right.add_child(svc)
 	show_vp = SubViewport.new()
 	show_vp.own_world_3d = true
 	show_vp.msaa_3d = Viewport.MSAA_4X
 	svc.add_child(show_vp)
 	_build_showroom()
-	var views := HBoxContainer.new()
-	views.add_theme_constant_override("separation", 8)
-	right.add_child(views)
-	for pair in [["FRONT", 0.0, 0.12], ["3/4 FRONT", 0.7, 0.22], ["SIDE", 1.5708, 0.1], ["3/4 REAR", 2.4, 0.22], ["REAR", 3.1416, 0.12], ["TOP", 0.7, 1.2]]:
-		var vb := _button(pair[0], 15, 38)
-		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var yaw: float = pair[1]
-		var pitch: float = pair[2]
-		vb.pressed.connect(func():
-			orbit_yaw = yaw
-			orbit_pitch = pitch
-			_idle = -3.0)
-		views.add_child(vb)
 	var info := _panel()
 	right.add_child(info)
 	var ih := HBoxContainer.new()
@@ -592,13 +576,8 @@ func _build_showroom() -> void:
 	env.glow_enabled = true
 	env.glow_intensity = 0.6
 	if Mats.toon():
-		# a splash-page backdrop and ink lines round the car
-		var sky := Sky.new()
-		var sm := ShaderMaterial.new()
-		sm.shader = load("res://shaders/showroom_sky.gdshader")
-		sky.sky_material = sm
-		env.background_mode = Environment.BG_SKY
-		env.sky = sky
+		# cel light and ink lines round the car, on a plain dark panel
+		env.background_color = Color(0.045, 0.055, 0.17)
 		env.ambient_light_color = Color(0.7, 0.75, 0.95)
 		env.ambient_light_energy = 0.95
 		env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
@@ -631,8 +610,8 @@ func _build_showroom() -> void:
 	# turntable floor with a glowing rim
 	var floor_m := MeshInstance3D.new()
 	var disc := CylinderMesh.new()
-	disc.top_radius = 4.2
-	disc.bottom_radius = 4.3
+	disc.top_radius = 2.95
+	disc.bottom_radius = 3.05
 	disc.height = 0.08
 	disc.radial_segments = 64
 	floor_m.mesh = disc
@@ -648,8 +627,8 @@ func _build_showroom() -> void:
 	show_root.add_child(floor_m)
 	var ring := MeshInstance3D.new()
 	var tor := TorusMesh.new()
-	tor.inner_radius = 4.15
-	tor.outer_radius = 4.3
+	tor.inner_radius = 2.9
+	tor.outer_radius = 3.05
 	tor.rings = 64
 	ring.mesh = tor
 	var rm := StandardMaterial3D.new()
@@ -663,28 +642,6 @@ func _build_showroom() -> void:
 	show_cam.fov = 40.0
 	show_root.add_child(show_cam)
 	show_cam.current = true
-
-
-func _showroom_input(e: InputEvent) -> void:
-	if e is InputEventMouseButton:
-		var mb := e as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT:
-			_dragging = mb.pressed
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			orbit_dist = maxf(3.6, orbit_dist - 0.4)
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			orbit_dist = minf(11.0, orbit_dist + 0.4)
-		_idle = -3.0
-	elif e is InputEventMouseMotion and _dragging:
-		var mm := e as InputEventMouseMotion
-		orbit_yaw -= mm.relative.x * 0.008
-		orbit_pitch = clampf(orbit_pitch + mm.relative.y * 0.006, 0.02, 1.35)
-		_idle = -3.0
-	elif e is InputEventScreenDrag:
-		var sd := e as InputEventScreenDrag
-		orbit_yaw -= sd.relative.x * 0.008
-		orbit_pitch = clampf(orbit_pitch + sd.relative.y * 0.006, 0.02, 1.35)
-		_idle = -3.0
 
 
 # ------------------------------------------------------------------ screens
@@ -852,11 +809,9 @@ func _build_backdrop() -> void:
 
 
 func _process(dt: float) -> void:
-	# showroom orbit camera (turns slowly by itself when left alone)
+	# showroom camera circles the car steadily
 	if show_cam and screen == "cars":
-		_idle += dt
-		if _idle > 2.0 and not _dragging:
-			orbit_yaw += dt * 0.25
+		orbit_yaw += dt * 0.45        # the car simply turns on its stand
 		var target := Vector3(0, 0.6, 0)
 		var off := Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), -cos(orbit_yaw) * cos(orbit_pitch)) * orbit_dist
 		show_cam.position = show_cam.position.lerp(target + off, 1.0 - exp(-10.0 * dt))
