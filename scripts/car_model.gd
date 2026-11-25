@@ -857,7 +857,89 @@ func _apply_lights() -> void:
 		lens_mat.emission_energy_multiplier = lerpf(0.0, 6.0, open)
 
 
+var _smoke: Array[CPUParticles3D] = []
+## Tyre smoke from the rear wheels while the car slides.
+var smoking := false:
+	set(v):
+		smoking = v
+		for p in _smoke:
+			p.emitting = v
+
+
+## Cartoon tyre smoke: solid round puffs that swell and shrink away, so the
+## ink lines draw them like smoke in a comic.
+func _build_smoke() -> void:
+	var puff := SphereMesh.new()
+	puff.radius = 0.5
+	puff.height = 1.0
+	puff.radial_segments = 9
+	puff.rings = 5
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.93, 0.94, 1.0)
+	mat.roughness = 1.0
+	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	mat.emission_enabled = true
+	mat.emission = Color(0.35, 0.38, 0.5)
+	var swell := Curve.new()
+	swell.add_point(Vector2(0.0, 0.25))
+	swell.add_point(Vector2(0.3, 1.0))
+	swell.add_point(Vector2(1.0, 0.0))
+	for i in [2, 3]:
+		var p := CPUParticles3D.new()
+		p.mesh = puff
+		p.material_override = mat
+		p.amount = 12
+		p.lifetime = 0.75
+		p.local_coords = false
+		p.emitting = false
+		p.direction = Vector3(0, 0.5, 1)
+		p.spread = 28.0
+		p.initial_velocity_min = 1.2
+		p.initial_velocity_max = 3.0
+		p.gravity = Vector3(0, 1.6, 0)
+		p.scale_amount_min = 0.45
+		p.scale_amount_max = 0.95
+		p.scale_amount_curve = swell
+		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		p.position = Vector3(wheels[i].position.x, 0.18, wheels[i].position.z + 0.25)
+		add_child(p)
+		_smoke.append(p)
+
+
+## A burst of sparks where the car hits something (position in the car's space).
+func sparks(at: Vector3) -> void:
+	var chip := BoxMesh.new()
+	chip.size = Vector3(0.05, 0.05, 0.3)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.85, 0.3)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.7, 0.2)
+	mat.emission_energy_multiplier = 3.0
+	var p := CPUParticles3D.new()
+	p.mesh = chip
+	p.material_override = mat
+	p.amount = 26
+	p.lifetime = 0.45
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.local_coords = false
+	p.direction = Vector3(0, 0.6, 0)
+	p.spread = 80.0
+	p.initial_velocity_min = 4.0
+	p.initial_velocity_max = 10.0
+	p.gravity = Vector3(0, -14.0, 0)
+	p.particle_flag_align_y = true
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	p.position = at
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
+
+
 func update_visual(dt: float, steer_angle: float, speed: float, braking: bool, wheel_offsets: Array = []) -> void:
+	if _smoke.is_empty() and wheels.size() >= 4:
+		_build_smoke()
 	var target := PI / 2 if _lights_target else 0.0
 	if not is_equal_approx(_popup_angle, target):
 		_popup_angle = move_toward(_popup_angle, target, dt * 4.0)

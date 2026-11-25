@@ -115,7 +115,7 @@ func _road_details() -> void:
 		for lat: float in [-t.hw + 0.5, t.hw - 0.68, -0.52, 0.34]:
 			_road_run(white, k, k, lat, lat + 0.18, 0.012)
 	var pd := _mat(Color(0.2, 0.2, 0.27), 0.9)
-	var pl := _mat(Color(0.42, 0.42, 0.5), 0.9)
+	var pl := _mat(Color(0.33, 0.33, 0.42), 0.9)
 	var wm := _mat(Color(0.88, 0.88, 0.85), 0.6)
 	for pair in [[patch_dark, pd], [patch_light, pl], [white, wm]]:
 		(pair[1] as StandardMaterial3D).cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1616,7 +1616,7 @@ func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
 	_piece(_boxm(Vector3(0.36, 0.1, 0.6)), _emissive(col, 5.0), Transform3D(arm_basis, base + Vector3.UP * 7.3 + toward_road * 1.8))
 	var l := SpotLight3D.new()
 	l.light_color = col
-	l.light_energy = 3.5
+	l.light_energy = 3.5 * (0.4 if Mats.toon() else 1.0)
 	l.spot_range = 16.0
 	l.spot_angle = 55.0
 	l.spot_attenuation = 0.9
@@ -1652,7 +1652,7 @@ func _vending(p: Vector3, facing: Vector3) -> void:
 	_piece(_boxm(Vector3(0.8, 0.12, 0.02)), _emissive(Color(1.0, 0.5, 0.2), 1.5), Transform3D(b, p + Vector3.UP * 0.75 + facing * 0.38))
 	var l := OmniLight3D.new()
 	l.light_color = Color(0.9, 0.95, 1.0)
-	l.light_energy = 1.2
+	l.light_energy = 1.2 * (0.4 if Mats.toon() else 1.0)
 	l.omni_range = 6.0
 	l.position = p + Vector3.UP * 1.3 + facing * 1.0
 	_add(l)
@@ -2457,7 +2457,7 @@ func _tunnels() -> void:
 				if (i - i0) % 15 == 0:
 					var l := OmniLight3D.new()
 					l.light_color = Color(1.0, 0.62, 0.3)
-					l.light_energy = 3.0
+					l.light_energy = 3.0 * (0.4 if Mats.toon() else 1.0)
 					l.omni_range = 18.0
 					l.position = lp + Vector3.DOWN * 1.0 + t.R[i] * 1.0
 					_add(l)

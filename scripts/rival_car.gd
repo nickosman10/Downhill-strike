@@ -136,6 +136,7 @@ func _place(dt: float) -> void:
 	var behind := track.point_at(maxf(0.0, s - 1.2), lat).y
 	basis = basis.rotated(basis.x, atan2(ahead - behind, 2.4))
 	transform = Transform3D(basis, p)
+	model.smoking = absf(_yaw_offset) > 0.14 and v > 8.0
 	model.update_visual(dt, -_yaw_offset * 0.6, v, v > 5.0 and dt > 0.0 and v - profile[mini(track.index_at_s(s) + 4, profile.size() - 1)] > 1.0)
 
 

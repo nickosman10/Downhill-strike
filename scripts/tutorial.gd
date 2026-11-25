@@ -47,21 +47,20 @@ func build(r) -> void:
 	add_child(root)
 
 	panel = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.03, 0.05, 0.1, 0.86)
-	sb.border_color = Color(1.0, 0.72, 0.16)
-	sb.set_border_width_all(0)
-	sb.border_width_left = 6
-	sb.set_corner_radius_all(10)
-	sb.set_content_margin_all(18)
+	# a manga caption box: paper, ink frame, hard red shadow
+	var sb := Ui.box(Ui.PAPER, 5, 0.0, 20, Ui.INK)
+	sb.shadow_color = Ui.RED
+	sb.shadow_offset = Vector2(8, 9)
 	panel.add_theme_stylebox_override("panel", sb)
 	root.add_child(panel)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 10)
 	panel.add_child(col)
-	title = _label("", 34, Color(1.0, 0.75, 0.2))
+	title = _label("", 34, Ui.RED)
+	Ui.title(title, 28, Ui.RED, 0, Color(0, 0, 0, 0))
 	col.add_child(title)
-	body = _label("", 20, Color(0.92, 0.94, 1.0))
+	body = _label("", 19, Ui.INK)
+	body.add_theme_constant_override("outline_size", 0)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.custom_minimum_size = Vector2(560, 0)
 	col.add_child(body)
@@ -69,12 +68,12 @@ func build(r) -> void:
 	keys.add_theme_constant_override("separation", 10)
 	col.add_child(keys)
 
-	checklist = _label("", 16, Color(0.7, 0.78, 0.95))
+	checklist = _label("", 17, Ui.PAPER)
 	root.add_child(checklist)
 
-	qte = _label("", 64, Color(1, 1, 1))
+	qte = _label("", 72, Color(1, 1, 1))
 	qte.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	qte.add_theme_constant_override("outline_size", 12)
+	Ui.title(qte, 72, Ui.YELLOW, 16)
 	root.add_child(qte)
 
 	_layout()
@@ -94,17 +93,14 @@ func _label(text: String, size: int, color: Color) -> Label:
 
 func _keycap(text: String) -> Control:
 	if text in ["+", "→", "hold"]:
-		return _label(text, 26, Color(0.8, 0.85, 1.0))
+		var sep := _label(text, 26, Ui.INK)
+		sep.add_theme_constant_override("outline_size", 0)
+		return sep
 	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.95, 0.95, 0.92)
-	sb.set_corner_radius_all(8)
-	sb.border_width_bottom = 5
-	sb.border_color = Color(0.55, 0.55, 0.6)
+	var sb := Ui.box(Ui.YELLOW, 4, 0.0, 6, Ui.INK)
 	sb.content_margin_left = 16
 	sb.content_margin_right = 16
-	sb.content_margin_top = 6
-	sb.content_margin_bottom = 6
+	sb.shadow_offset = Vector2(3, 4)
 	p.add_theme_stylebox_override("panel", sb)
 	var l := Label.new()
 	l.text = text
@@ -116,11 +112,12 @@ func _keycap(text: String) -> Control:
 
 func _layout() -> void:
 	var vs := get_viewport().get_visible_rect().size
-	panel.position = Vector2(vs.x * 0.5 - 320, vs.y - 300)
-	panel.custom_minimum_size = Vector2(640, 0)
-	checklist.position = Vector2(20, 170)
+	# along the top, clear of the car, the map and the speed read-out
+	panel.position = Vector2(vs.x * 0.5 - 330, 22)
+	panel.custom_minimum_size = Vector2(660, 0)
+	checklist.position = Vector2(20, 190)
 	qte.size = Vector2(vs.x, 90)
-	qte.position = Vector2(0, vs.y * 0.36)
+	qte.position = Vector2(0, vs.y * 0.4)
 
 
 func _show_step() -> void:

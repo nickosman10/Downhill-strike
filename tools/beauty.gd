@@ -42,6 +42,11 @@ func _ready() -> void:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	get_window().size = Vector2i(1920, 1080)
+	if args.size() > 6 and args[1] == "at":
+		# any spot: at <name> <course> <mode> <position 0-1> <camera> [hud]
+		await _shot([args[2], int(args[3]), int(args[4]), float(args[5]), args[6], args.size() > 7])
+		get_tree().quit()
+		return
 	if args.size() > 2 and args[1] == "shot":
 		await _shot(SHOTS[int(args[2])])
 		get_tree().quit()

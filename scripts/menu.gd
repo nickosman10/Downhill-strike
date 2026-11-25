@@ -9,7 +9,7 @@ extends Control
 
 signal start_race
 
-const ACCENT := Color(1.0, 0.78, 0.22)
+const ACCENT := Color(1.0, 0.83, 0.12)
 const PANEL := Color(0.02, 0.035, 0.09, 0.84)
 const UI_SIZE := Vector2(1600, 960)
 
@@ -65,15 +65,25 @@ class StatBars extends Control:
 	func _draw() -> void:
 		var names := values.keys()
 		var row_h := size.y / maxf(names.size(), 1)
-		var font := ThemeDB.fallback_font
+		var font := Ui.font("body")
 		for i in names.size():
 			var y := i * row_h
-			draw_string(font, Vector2(0, y + row_h * 0.7), names[i], HORIZONTAL_ALIGNMENT_LEFT, 130, 17, Color(0.75, 0.8, 0.9))
+			draw_string(font, Vector2(0, y + row_h * 0.7), names[i], HORIZONTAL_ALIGNMENT_LEFT, 135, 17, Ui.PAPER)
 			var x0 := 140.0
 			var w := size.x - x0 - 8.0
-			draw_rect(Rect2(x0, y + row_h * 0.25, w, row_h * 0.5), Color(0.1, 0.12, 0.2))
 			var v: float = clampf(values[names[i]] / 10.0, 0.0, 1.0)
-			draw_rect(Rect2(x0, y + row_h * 0.25, w * v, row_h * 0.5), Color(1.0, 0.78, 0.22).lerp(Color(1.0, 0.4, 0.2), v * 0.5))
+			# ten slanted blocks, filled up to the car's rating
+			var seg := w / 10.0
+			for k in 10:
+				var top := y + row_h * 0.2
+				var bot := y + row_h * 0.8
+				var lean := 7.0
+				var x := x0 + k * seg
+				var quad := PackedVector2Array([Vector2(x + lean, top), Vector2(x + seg - 4.0 + lean, top), Vector2(x + seg - 4.0, bot), Vector2(x, bot)])
+				var on := float(k) + 0.5 < v * 10.0
+				draw_colored_polygon(quad, Ui.YELLOW.lerp(Ui.RED, float(k) / 9.0) if on else Color(0.13, 0.15, 0.3))
+				quad.append(quad[0])
+				draw_polyline(quad, Ui.INK, 2.5, true)
 
 
 class CoursePreview extends Control:
@@ -96,22 +106,18 @@ class CoursePreview extends Control:
 	func _draw() -> void:
 		if pts.size() < 2:
 			return
-		draw_polyline(pts, Color(0, 0, 0, 0.6), 7.0, true)
-		draw_polyline(pts, Color(0.85, 0.9, 1.0), 3.0, true)
-		draw_circle(pts[0], 6.0, Color(0.3, 0.7, 1.0))
-		draw_circle(pts[pts.size() - 1], 6.0, Color(1.0, 0.3, 0.25))
+		draw_polyline(pts, Ui.INK, 11.0, true)
+		draw_polyline(pts, Ui.PAPER, 4.5, true)
+		for end in [[pts[0], Ui.CYAN], [pts[pts.size() - 1], Ui.RED]]:
+			draw_circle(end[0], 10.0, Ui.INK)
+			draw_circle(end[0], 6.5, end[1])
 
 
 # ------------------------------------------------------------------ widgets
 
 func _panel_style(border := true) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL
-	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(18)
-	if border:
-		sb.border_width_left = 4
-		sb.border_color = ACCENT
+	# a manga panel: dark fill, pale frame, hard shadow
+	var sb := Ui.box(Color(0.045, 0.055, 0.17, 0.94), 3, 0.0, 18, Ui.PAPER if border else Color(Ui.PAPER, 0.35))
 	return sb
 
 
@@ -126,6 +132,11 @@ func _label(text: String, size_px: int, color := Color(0.9, 0.93, 1.0)) -> Label
 	l.text = text
 	l.add_theme_font_size_override("font_size", size_px)
 	l.add_theme_color_override("font_color", color)
+	if size_px >= 28:
+		# headings are drawn in the display face with an ink outline
+		l.add_theme_font_override("font", Ui.font("display"))
+		l.add_theme_color_override("font_outline_color", Ui.INK)
+		l.add_theme_constant_override("outline_size", maxi(6, size_px / 5))
 	return l
 
 
@@ -134,41 +145,44 @@ func _button(text: String, size_px := 18, h := 42) -> Button:
 	b.text = text
 	b.custom_minimum_size = Vector2(0, h)
 	b.add_theme_font_size_override("font_size", size_px)
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.06, 0.09, 0.18, 0.92)
-	normal.set_corner_radius_all(6)
-	normal.set_content_margin_all(10)
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.14, 0.2, 0.38, 0.96)
-	hover.border_width_left = 4
-	hover.border_color = ACCENT
-	var pressed := normal.duplicate()
-	pressed.bg_color = ACCENT.darkened(0.25)
+	if size_px >= 24:
+		b.add_theme_font_override("font", Ui.font("display"))
+	var skew := 0.18 if h >= 44 else 0.1
+	var normal := Ui.box(Color(Ui.NAVY, 0.96), 3, skew, 10, Ui.PAPER)
+	var hover := Ui.box(Ui.YELLOW, 4, skew, 10, Ui.INK)
+	var pressed := Ui.box(Ui.RED, 4, skew, 10, Ui.INK)
+	var off := Ui.box(Color(0.12, 0.13, 0.2, 0.9), 3, skew, 10, Color(0.4, 0.42, 0.5))
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", pressed)
 	b.add_theme_stylebox_override("focus", hover)
-	b.add_theme_stylebox_override("disabled", normal)
-	b.add_theme_color_override("font_pressed_color", Color(0.05, 0.05, 0.08))
-	b.add_theme_color_override("font_disabled_color", Color(0.45, 0.48, 0.55))
+	b.add_theme_stylebox_override("disabled", off)
+	b.add_theme_color_override("font_color", Ui.PAPER)
+	b.add_theme_color_override("font_hover_color", Ui.INK)
+	b.add_theme_color_override("font_focus_color", Ui.INK)
+	b.add_theme_color_override("font_pressed_color", Ui.PAPER)
+	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.52, 0.6))
 	return b
 
 
 func _big_button(text: String, size_px := 30, h := 64) -> Button:
 	var go := _button(text, size_px, h)
-	var gs := StyleBoxFlat.new()
-	gs.bg_color = ACCENT
-	gs.set_corner_radius_all(8)
+	go.add_theme_font_override("font", Ui.font("display"))
+	var gs := Ui.box(Ui.YELLOW, 5, 0.18, 10, Ui.INK)
+	gs.shadow_color = Ui.RED
+	gs.shadow_offset = Vector2(7, 8)
 	go.add_theme_stylebox_override("normal", gs)
-	var gh := gs.duplicate()
-	gh.bg_color = ACCENT.lightened(0.2)
+	var gh: StyleBoxFlat = gs.duplicate()
+	gh.bg_color = Ui.PAPER
 	go.add_theme_stylebox_override("hover", gh)
 	go.add_theme_stylebox_override("focus", gh)
-	var gd := gs.duplicate()
-	gd.bg_color = Color(0.3, 0.3, 0.32)
+	var gd: StyleBoxFlat = gs.duplicate()
+	gd.bg_color = Color(0.36, 0.36, 0.42)
+	gd.shadow_color = Color(Ui.INK, 0.8)
 	go.add_theme_stylebox_override("disabled", gd)
 	for k in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color"]:
-		go.add_theme_color_override(k, Color(0.08, 0.05, 0.02))
+		go.add_theme_color_override(k, Ui.INK)
+	go.add_theme_color_override("font_disabled_color", Color(0.16, 0.16, 0.2))
 	return go
 
 
@@ -176,12 +190,12 @@ func _list() -> ItemList:
 	var l := ItemList.new()
 	l.add_theme_font_size_override("font_size", 21)
 	l.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var sel := StyleBoxFlat.new()
-	sel.bg_color = Color(ACCENT, 0.25)
-	sel.border_width_left = 3
-	sel.border_color = ACCENT
+	var sel := Ui.box(Ui.YELLOW, 3, 0.0, 4, Ui.INK, false)
 	l.add_theme_stylebox_override("selected", sel)
 	l.add_theme_stylebox_override("selected_focus", sel)
+	l.add_theme_stylebox_override("hovered", Ui.box(Color(Ui.PAPER, 0.12), 0, 0.0, 4, Ui.INK, false))
+	l.add_theme_color_override("font_selected_color", Ui.INK)
+	l.add_theme_color_override("font_hovered_color", Ui.PAPER)
 	l.add_theme_constant_override("v_separation", 10)
 	l.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	return l
@@ -199,9 +213,8 @@ func _header(parent: Control, title: String, sub: String) -> Label:
 	row.add_child(back)
 	var col := VBoxContainer.new()
 	row.add_child(col)
-	var t := _label(title, 40, ACCENT)
-	t.add_theme_color_override("font_outline_color", Color(0.3, 0.05, 0.0))
-	t.add_theme_constant_override("outline_size", 8)
+	var t := _label(title, 44, ACCENT)
+	Ui.title(t, 44, Ui.YELLOW, 10)
 	col.add_child(t)
 	var s := _label(sub, 16, Color(0.65, 0.75, 1.0))
 	col.add_child(s)
@@ -238,15 +251,10 @@ func _ready() -> void:
 	courses = Courses.all()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_backdrop()
-	var shade := TextureRect.new()
-	var grad := Gradient.new()
-	grad.set_color(0, Color(0, 0.01, 0.04, 0.9))
-	grad.set_color(1, Color(0, 0.01, 0.04, 0.1))
-	var gt := GradientTexture2D.new()
-	gt.gradient = grad
-	gt.fill_to = Vector2(1, 0)
-	shade.texture = gt
-	shade.stretch_mode = TextureRect.STRETCH_SCALE
+	var shade := ColorRect.new()
+	var burst := ShaderMaterial.new()
+	burst.shader = load("res://shaders/menu_burst.gdshader")
+	shade.material = burst
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(shade)
@@ -272,11 +280,15 @@ func _build_main() -> void:
 	var top := Control.new()
 	top.custom_minimum_size = Vector2(0, 90)
 	v.add_child(top)
-	var title := _label("DOWNHILL STRIKE", 92, ACCENT)
-	title.add_theme_color_override("font_outline_color", Color(0.3, 0.05, 0.0))
-	title.add_theme_constant_override("outline_size", 14)
+	var title := _label("DOWNHILL STRIKE", 104, ACCENT)
+	Ui.title(title, 104, Ui.YELLOW, 18)
 	v.add_child(title)
-	v.add_child(_label("MIDNIGHT TOUGE  ·  DOWNHILL ONLY", 22, Color(0.65, 0.75, 1.0)))
+	var kana := _label("ダウンヒル・ストライク", 34, Ui.PAPER)
+	Ui.title(kana, 34, Ui.PAPER, 9, Ui.INK)
+	v.add_child(kana)
+	var tag := _label("MIDNIGHT TOUGE  ·  DOWNHILL ONLY", 22, Ui.CYAN)
+	Ui.inked(tag, 22, Ui.CYAN, 6)
+	v.add_child(tag)
 	var gap := Control.new()
 	gap.custom_minimum_size = Vector2(0, 40)
 	v.add_child(gap)
@@ -579,6 +591,30 @@ func _build_showroom() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.glow_enabled = true
 	env.glow_intensity = 0.6
+	if Mats.toon():
+		# a splash-page backdrop and ink lines round the car
+		var sky := Sky.new()
+		var sm := ShaderMaterial.new()
+		sm.shader = load("res://shaders/showroom_sky.gdshader")
+		sky.sky_material = sm
+		env.background_mode = Environment.BG_SKY
+		env.sky = sky
+		env.ambient_light_color = Color(0.7, 0.75, 0.95)
+		env.ambient_light_energy = 0.95
+		env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+		env.glow_intensity = 0.35
+		env.adjustment_enabled = true
+		env.adjustment_saturation = 1.2
+		var ink := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2(2, 2)
+		ink.mesh = quad
+		var im := ShaderMaterial.new()
+		im.shader = load("res://shaders/outline.gdshader")
+		ink.material_override = im
+		ink.extra_cull_margin = 16384.0
+		ink.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		show_root.add_child(ink)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	show_root.add_child(we)
@@ -604,6 +640,9 @@ func _build_showroom() -> void:
 	fm.albedo_color = Color(0.09, 0.1, 0.13)
 	fm.roughness = 0.25
 	fm.metallic = 0.4
+	if Mats.toon():
+		fm.albedo_color = Color(0.42, 0.47, 0.7)
+		fm.metallic = 0.0
 	floor_m.material_override = fm
 	floor_m.position.y = -0.04
 	show_root.add_child(floor_m)
@@ -836,7 +875,8 @@ func _process(dt: float) -> void:
 	bd_car.update_visual(dt, -drift * 0.6, 16.0, false)
 	bd_angle += dt * 0.12
 	var side := d.cross(Vector3.UP)
-	var offset := (-d * cos(bd_angle) * 8.0 + side * sin(bd_angle) * 8.0) + Vector3.UP * 3.0
+	# the camera sways behind the car but stays over the road, clear of the trees
+	var offset := -d * (7.0 + cos(bd_angle) * 1.5) + side * sin(bd_angle) * 2.6 + Vector3.UP * 2.7
 	bd_cam.global_position = bd_cam.global_position.lerp(p + offset, 1.0 - exp(-3.0 * dt)) if bd_cam.global_position != Vector3.ZERO else p + offset
 	bd_cam.look_at(p + Vector3.UP * 0.8 + d * 3.0, Vector3.UP)
 

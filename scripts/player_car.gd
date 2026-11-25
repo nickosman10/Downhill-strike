@@ -586,6 +586,7 @@ func _update_transform(dt: float) -> void:
 	var basis := Basis.looking_at(f3, Vector3.UP)
 	basis = basis.rotated(r3, _pitch).rotated(f3, -_roll)
 	transform = Transform3D(basis, Vector3(pos.x, (hf + hb + hl + hr) * 0.25, pos.z))
+	model.smoking = drifting and speed > 6.0
 	model.body.rotation.z = body_roll
 	model.update_visual(dt, steer * lerpf(0.62, 0.17, clampf(speed / 42.0, 0.0, 1.0)) + (-slip * 0.5 if drifting else 0.0),
 		vel.dot(fwd), brake > 0.1 and control_enabled)

@@ -455,6 +455,7 @@ func _on_crash(impact: float) -> void:
 	if state != State.RACING:
 		return
 	cam.shake(clampf(impact / 12.0, 0.2, 1.0))
+	car.model.sparks(Vector3(signf(car.lat) * 0.8, 0.4, -0.6))
 	if Game.is_battle(mode) and impact > 13.0:
 		_lose("CRASHED OUT")
 		return

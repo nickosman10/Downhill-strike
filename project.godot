@@ -44,3 +44,7 @@ lights_and_shadows/positional_shadow/soft_shadow_filter_quality=3
 environment/ssao/quality=2
 environment/volumetric_fog/volume_size=96
 environment/screen_space_reflection/roughness_quality=2
+
+[gui]
+
+theme/custom_font="res://assets/fonts/MPLUSRounded1c-ExtraBold.ttf"

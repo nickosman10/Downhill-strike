@@ -20,6 +20,7 @@ func _ready() -> void:
 	_setup_input()
 	records.load(SAVE_PATH)
 	selected_car = records.get_value("garage", "selected", "ae85")
+	Ui.install(get_tree().root)
 	Mats.realistic = records.get_value("video", "realistic", false)
 	# cartoon style: every object that enters the scene is cel-shaded
 	get_tree().node_added.connect(func(n: Node) -> void:

@@ -48,16 +48,21 @@ class Minimap extends Control:
 		queue_redraw()
 
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, 0.45))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(Ui.NAVY, 0.78))
+		draw_rect(Rect2(Vector2.ZERO, size), Ui.PAPER, false, 3.0)
 		if pts.size() > 1:
-			draw_polyline(pts, Color(0.85, 0.85, 0.85, 0.9), 3.0, true)
-			draw_circle(pts[0], 4.0, Color(0.3, 0.6, 1.0))
-			draw_circle(pts[pts.size() - 1], 4.0, Color(1.0, 0.25, 0.25))
+			draw_polyline(pts, Ui.INK, 7.0, true)
+			draw_polyline(pts, Ui.PAPER, 3.0, true)
+			draw_circle(pts[0], 5.5, Ui.INK)
+			draw_circle(pts[0], 3.5, Ui.CYAN)
+			draw_circle(pts[pts.size() - 1], 5.5, Ui.INK)
+			draw_circle(pts[pts.size() - 1], 3.5, Ui.RED)
 		if race and race.rival:
-			draw_circle(_map(race.rival.global_position), 5.0, Cars.get_car(race.rival.info.get("car", "s13")).paint)
+			draw_circle(_map(race.rival.global_position), 7.0, Ui.INK)
+			draw_circle(_map(race.rival.global_position), 4.5, Cars.get_car(race.rival.info.get("car", "s13")).paint)
 		if race and race.car:
-			draw_circle(_map(race.car.global_position), 5.5, Color.WHITE)
-			draw_circle(_map(race.car.global_position), 3.0, Color.BLACK)
+			draw_circle(_map(race.car.global_position), 7.5, Ui.INK)
+			draw_circle(_map(race.car.global_position), 5.0, Ui.YELLOW)
 
 
 class CupWidget extends Control:
@@ -77,7 +82,8 @@ class CupWidget extends Control:
 		var cup_pts := PackedVector2Array([
 			Vector2(cx - top_w / 2, 8), Vector2(cx - bot_w / 2, h - 18),
 			Vector2(cx + bot_w / 2, h - 18), Vector2(cx + top_w / 2, 8)])
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, 0.45))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(Ui.NAVY, 0.78))
+		draw_rect(Rect2(Vector2.ZERO, size), Ui.PAPER, false, 3.0)
 		# water: level + tilt from slosh
 		var level := car.cup / 100.0
 		var y := lerpf(h - 18, 14, level)
@@ -89,7 +95,7 @@ class CupWidget extends Control:
 				Vector2(cx - half, y + tilt), Vector2(cx - bot_w / 2, h - 18),
 				Vector2(cx + bot_w / 2, h - 18), Vector2(cx + half, y - tilt)])
 			draw_colored_polygon(water, Color(0.35, 0.65, 1.0, 0.85))
-		draw_polyline(cup_pts, Color.WHITE, 2.0)
+		draw_polyline(cup_pts, Ui.PAPER, 3.5)
 		var col := Color(0.6, 1.0, 0.6) if car.cup > 60 else (Color(1.0, 0.85, 0.3) if car.cup > 30 else Color(1, 0.3, 0.3))
 		draw_string(ThemeDB.fallback_font, Vector2(4, h - 3), "WATER %d%%" % int(car.cup), HORIZONTAL_ALIGNMENT_CENTER, w - 8, 13, col)
 
@@ -99,9 +105,11 @@ func _label(text: String, size: int, pos: Vector2, align := HORIZONTAL_ALIGNMENT
 	l.text = text
 	l.position = pos
 	l.horizontal_alignment = align
-	l.add_theme_font_size_override("font_size", size)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	l.add_theme_constant_override("outline_size", 6)
+	if size >= 26:
+		# big read-outs in the slanted display face
+		Ui.title(l, size, Ui.PAPER, maxi(8, size / 6), Ui.INK)
+	else:
+		Ui.inked(l, size, Ui.PAPER, 7)
 	add_child(l)
 	return l
 
@@ -132,11 +140,19 @@ func build(r) -> void:
 	rpm_bar = ProgressBar.new()
 	rpm_bar.max_value = 8000
 	rpm_bar.show_percentage = false
+	rpm_bar.add_theme_stylebox_override("background", Ui.box(Color(Ui.NAVY, 0.9), 3, 0.5, 0, Ui.INK, false))
+	rpm_bar.add_theme_stylebox_override("fill", Ui.box(Ui.YELLOW, 3, 0.5, 0, Ui.INK, false))
 	add_child(rpm_bar)
+	Ui.title(speed_label, 54, Ui.YELLOW, 10)
+	Ui.title(time_label, 40, Ui.PAPER, 9, Ui.RED)
+	Ui.title(score_label, 28, Ui.YELLOW, 8)
+	Ui.title(combo_label, 24, Ui.CYAN, 7, Ui.INK)
+	Ui.inked(status_label, 22, Ui.CYAN, 8)
 
-	center_label = _label("", 96, Vector2.ZERO, HORIZONTAL_ALIGNMENT_CENTER)
-	warn_label = _label("", 34, Vector2.ZERO, HORIZONTAL_ALIGNMENT_CENTER)
-	warn_label.add_theme_color_override("font_color", Color(1, 0.3, 0.2))
+	center_label = _label("", 150, Vector2.ZERO, HORIZONTAL_ALIGNMENT_CENTER)
+	Ui.title(center_label, 150, Ui.YELLOW, 24)
+	warn_label = _label("", 40, Vector2.ZERO, HORIZONTAL_ALIGNMENT_CENTER)
+	Ui.title(warn_label, 40, Ui.RED, 10, Ui.INK)
 
 	popups = VBoxContainer.new()
 	popups.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -154,10 +170,9 @@ func build(r) -> void:
 	add_child(cup)
 
 	result_panel = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.05, 0.08, 0.88)
-	sb.set_corner_radius_all(10)
-	sb.set_content_margin_all(28)
+	var sb := Ui.box(Color(0.045, 0.055, 0.17, 0.95), 4, 0.0, 30, Ui.PAPER)
+	sb.shadow_color = Ui.RED
+	sb.shadow_offset = Vector2(8, 9)
 	result_panel.add_theme_stylebox_override("panel", sb)
 	result_label = Label.new()
 	result_label.add_theme_font_size_override("font_size", 24)
@@ -173,14 +188,14 @@ func _layout() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	score_label.position = Vector2(20, vs.y - 92)
 	combo_label.position = Vector2(20, vs.y - 54)
-	speed_label.size = Vector2(240, 70)
-	speed_label.position = Vector2(vs.x - 260, vs.y - 128)
+	speed_label.size = Vector2(560, 70)
+	speed_label.position = Vector2(vs.x - 590, vs.y - 124)
 	gear_label.size = Vector2(240, 30)
 	gear_label.position = Vector2(vs.x - 260, vs.y - 54)
-	rpm_bar.size = Vector2(220, 10)
-	rpm_bar.position = Vector2(vs.x - 240, vs.y - 140)
-	center_label.size = Vector2(vs.x, 120)
-	center_label.position = Vector2(0, vs.y * 0.3)
+	rpm_bar.size = Vector2(230, 18)
+	rpm_bar.position = Vector2(vs.x - 262, vs.y - 146)
+	center_label.size = Vector2(vs.x, 200)
+	center_label.position = Vector2(0, vs.y * 0.26)
 	warn_label.size = Vector2(vs.x, 40)
 	warn_label.position = Vector2(0, vs.y * 0.18)
 	popups.size = Vector2(vs.x, 200)
@@ -192,17 +207,19 @@ func _layout() -> void:
 
 
 func show_popup(text: String, color: Color) -> void:
+	# call-outs land like manga sound effects: big, tilted, popping in
 	var l := Label.new()
 	l.text = text
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.add_theme_font_size_override("font_size", 30)
-	l.add_theme_color_override("font_color", color)
-	l.add_theme_color_override("font_outline_color", Color.BLACK)
-	l.add_theme_constant_override("outline_size", 8)
+	Ui.title(l, 36, color, 10, Ui.INK)
 	popups.add_child(l)
+	l.pivot_offset = Vector2(popups.size.x * 0.5, 24)
+	l.rotation = deg_to_rad(randf_range(-4.0, 4.0))
+	l.scale = Vector2(1.7, 1.7)
 	var tw := create_tween()
-	tw.tween_interval(1.2)
-	tw.tween_property(l, "modulate:a", 0.0, 0.5)
+	tw.tween_property(l, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(1.1)
+	tw.tween_property(l, "modulate:a", 0.0, 0.4)
 	tw.tween_callback(l.queue_free)
 	if popups.get_child_count() > 4:
 		popups.get_child(0).queue_free()
