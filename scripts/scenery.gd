@@ -147,6 +147,9 @@ func _spectators() -> void:
 	for k in 9:
 		meshes.append(_person_mesh(40 + k))
 		xf.append([])
+	var pad := SurfaceTool.new()
+	pad.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var pads := 0
 	var n := t.P.size()
 	var i := 40
 	while i < n - 40:
@@ -167,22 +170,68 @@ func _spectators() -> void:
 		for side: float in [outside, -outside]:
 			if wall_sides.has(Vector2i(apex, int(side))):
 				continue
-			var probe: Vector3 = t.P[apex] + t.R[apex] * side * (t.rail + 1.8)
-			if absf(t.terrain_height(probe.x, probe.z) - t.P[apex].y) > 1.3:
+			# a place to stand: ground that doesn't rise above the road here,
+			# and doesn't fall away further than the standing area can bridge
+			var ok := true
+			for at2: int in [apex - 8, apex, apex + 8]:
+				var probe: Vector3 = t.P[at2] + t.R[at2] * side * (t.rail + 1.6)
+				var dh := t.terrain_height(probe.x, probe.z) - t.P[at2].y
+				if dh > 0.3 or dh < -3.5 or wall_sides.has(Vector2i(at2, int(side))) or t.in_tunnel(at2):
+					ok = false
+			if not ok:
 				continue
+			# a levelled verge behind the rail for them to stand on, banked down to the hillside
+			var i0 := apex - 10
+			var i1 := apex + 10
+			var in_lat := t.rail + 0.3
+			var out_lat := t.rail + 3.0
+			for k in range(i0 + 1, i1 + 1):
+				var rows: Array = []
+				for kk: int in [k - 1, k]:
+					var base: Vector3 = t.P[kk] + Vector3.DOWN * 0.1
+					var rr: Vector3 = t.R[kk] * side
+					rows.append([base + rr * in_lat, base + rr * out_lat, base + rr * (out_lat + 2.2) + Vector3.DOWN * 4.0])
+				for strip in 2:
+					var q := [rows[0][strip], rows[1][strip], rows[1][strip + 1], rows[0][strip + 1]]
+					var nrm := Vector3.UP if strip == 0 else (t.R[k] * side * 0.9 + Vector3.UP * 0.45).normalized()
+					for idx: int in [0, 1, 2, 0, 2, 3]:
+						pad.set_normal(nrm)
+						pad.set_uv(Vector2(q[idx].x, q[idx].z) * 0.25)
+						pad.add_vertex(q[idx])
+			# both ends banked down too
+			for kk: int in [i0, i1]:
+				var base: Vector3 = t.P[kk] + Vector3.DOWN * 0.1
+				var rr: Vector3 = t.R[kk] * side
+				var along: Vector3 = t.D[kk] * (-1.0 if kk == i0 else 1.0)
+				var q := [base + rr * in_lat, base + rr * out_lat, base + rr * (out_lat + 2.2) + along * 2.2 + Vector3.DOWN * 4.0, base + rr * in_lat + along * 2.2 + Vector3.DOWN * 4.0]
+				for idx: int in [0, 1, 2, 0, 2, 3]:
+					pad.set_normal((along * 0.9 + Vector3.UP * 0.45).normalized())
+					pad.set_uv(Vector2(q[idx].x, q[idx].z) * 0.25)
+					pad.add_vertex(q[idx])
+			pads += 1
 			var count := rng.randi_range(6, 11)
 			for c in count:
-				var at := clampi(apex + rng.randi_range(-7, 7), 1, n - 2)
-				var p: Vector3 = t.P[at] + t.R[at] * side * (t.rail + rng.randf_range(0.65, 1.9))
-				var ground := t.terrain_height(p.x, p.z)
-				if absf(ground - t.P[at].y) > 1.3 or _blocked(p, 0.35):
+				var at := clampi(apex + rng.randi_range(-8, 8), 1, n - 2)
+				var p: Vector3 = t.P[at] + t.R[at] * side * (t.rail + rng.randf_range(0.7, 2.5))
+				if _blocked(p, 0.3):
 					continue
-				p.y = maxf(ground, t.P[at].y - 0.12) - 0.02
-				var face := Basis.looking_at(t.R[at] * side, Vector3.UP).rotated(Vector3.UP, rng.randf_range(-0.5, 0.5))
+				p.y = t.P[at].y - 0.1
+				# they watch the road
+				var face := Basis.looking_at(-t.R[at] * side, Vector3.UP).rotated(Vector3.UP, rng.randf_range(-0.45, 0.45))
 				var sc := rng.randf_range(0.94, 1.08)
 				xf[rng.randi() % meshes.size()].append(Transform3D(face.scaled(Vector3(sc, sc, sc)), p))
-				_keep_out(p, 0.45)
+				_keep_out(p, 0.4)
+			# nothing else is planted on the standing area
+			for k in range(i0, i1 + 1):
+				_keep_out(t.P[k] + t.R[k] * side * (t.rail + 1.6), 1.7)
 			break
+	if pads > 0:
+		var pm := Mats.pbr("grass", 1.0)
+		pm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		pad.set_material(pm)
+		var pmi := MeshInstance3D.new()
+		pmi.mesh = pad.commit()
+		_add(pmi)
 	_cast_shadows = Mats.toon() or Mats.hq()
 	for k in meshes.size():
 		if not xf[k].is_empty():
