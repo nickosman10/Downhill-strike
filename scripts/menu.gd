@@ -39,6 +39,7 @@ var car_select: Button
 var show_vp: SubViewport
 var show_root: Node3D
 var show_car: CarModel
+var show_spin := 0.0
 var show_cam: Camera3D
 var orbit_yaw := 0.7
 var orbit_pitch := 0.2
@@ -576,8 +577,10 @@ func _build_showroom() -> void:
 	env.glow_enabled = true
 	env.glow_intensity = 0.6
 	if Mats.toon():
-		# cel light and ink lines round the car, on a plain dark panel
-		env.background_color = Color(0.045, 0.055, 0.17)
+		# cel light and ink lines round the car; no backdrop at all, only the
+		# turntable and the car over the menu picture
+		env.background_mode = Environment.BG_CLEAR_COLOR
+		show_vp.transparent_bg = true
 		env.ambient_light_color = Color(0.7, 0.75, 0.95)
 		env.ambient_light_energy = 0.95
 		env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
@@ -786,6 +789,7 @@ func _refresh_car() -> void:
 		show_car.queue_free()
 	show_car = CarModel.for_car(id)
 	show_root.add_child(show_car)
+	show_car.rotation.y = show_spin
 	show_car.set_lights(true, true)
 	show_car.update_visual(0.1, 0.0, 0.0, false)
 
@@ -809,9 +813,11 @@ func _build_backdrop() -> void:
 
 
 func _process(dt: float) -> void:
-	# showroom camera circles the car steadily
+	# the car turns on its stand; the camera stays put
 	if show_cam and screen == "cars":
-		orbit_yaw += dt * 0.45        # the car simply turns on its stand
+		show_spin += dt * 0.6
+		if show_car:
+			show_car.rotation.y = show_spin
 		var target := Vector3(0, 0.6, 0)
 		var off := Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), -cos(orbit_yaw) * cos(orbit_pitch)) * orbit_dist
 		show_cam.position = show_cam.position.lerp(target + off, 1.0 - exp(-10.0 * dt))
