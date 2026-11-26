@@ -55,7 +55,7 @@ void fragment() {
 	vec2 auv = (wpos.xz - aerial_origin) / aerial_size;
 	if (use_aerial > 0.5 && auv.x > 0.0 && auv.y > 0.0 && auv.x < 1.0 && auv.y < 1.0) {
 		// the real colours of the place, reduced to broad washes
-		vec3 photo = textureLod(aerial, auv, 3.0).rgb;
+		vec3 photo = textureLod(aerial, auv, 1.0).rgb;      // (stored small: only the broad colours are used)
 		float lum = dot(photo, vec3(0.3, 0.55, 0.15));
 		alb = mix(alb, alb * (photo / max(lum, 0.05)) * (0.6 + lum * 1.2), 0.4 * (1.0 - rock));
 		float forest = smoothstep(0.0, 0.05, photo.g - photo.r) * (1.0 - smoothstep(0.35, 0.6, lum));

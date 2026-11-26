@@ -14,7 +14,6 @@ func _ready() -> void:
 	sun.rotation = Vector3(-0.8, 0.6, 0)
 	add_child(sun)
 	var sc := Scenery.new()
-	sc.trunk_mat = Mats.pbr("bark", 1.0, Color(0.75, 0.7, 0.65))
 	var x := 0.0
 	for k in 9:
 		var mi := MeshInstance3D.new()

@@ -94,7 +94,6 @@ var _was_braking := false
 var _idle_time := 0.0
 var _stuck_time := 0.0
 var _clock := 0.0
-var _exit_timer := 0.0
 var _prev_vel := Vector2.ZERO
 var _roll := 0.0
 var _pitch := 0.0

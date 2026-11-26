@@ -1,16 +1,11 @@
 class_name Scenery
 extends RefCounted
-## Roadside dressing in the style of the First Stage night backgrounds:
-## painted foliage, concrete retaining walls with chain-link fences on the
-## hillside, wooden utility poles with sagging wires, red/white delineators at
-## hairpins, red rumble stripes before corners, distant ridges.
+## Everything beside the road on the real-road courses, drawn as a cartoon:
+## retaining walls and tunnels, sculpted trees, bushes and rocks, poles and
+## wires, signs, lamps, buildings, the town lights below, and the spectators.
 
 var t: Track
 var rng := RandomNumberGenerator.new()
-var foliage_mat: ShaderMaterial
-var leaf_mat: ShaderMaterial
-var cedar_mat: ShaderMaterial
-var trunk_mat: StandardMaterial3D
 var caps := PackedVector3Array()   # (x, max terrain height, z) under walls and frames
 var wall_sides := {}
 # every placed object's footprint, so nothing ends up inside anything else
@@ -24,16 +19,6 @@ var _pending: Array = []       # trees and bushes, planted last around everythin
 func build(track: Track) -> void:
 	t = track
 	rng.seed = hash(t.course.get("id", "x"))
-	foliage_mat = ShaderMaterial.new()
-	foliage_mat.shader = load("res://shaders/foliage.gdshader")
-	leaf_mat = ShaderMaterial.new()
-	leaf_mat.shader = load("res://shaders/foliage_card.gdshader")
-	leaf_mat.set_shader_parameter("leaves", load("res://assets/textures/leaves.png"))
-	cedar_mat = ShaderMaterial.new()
-	cedar_mat.shader = load("res://shaders/foliage_card.gdshader")
-	cedar_mat.set_shader_parameter("leaves", load("res://assets/textures/cedar.png"))
-	cedar_mat.set_shader_parameter("brightness", 0.9)
-	trunk_mat = Mats.pbr("bark", 1.0, Color(0.75, 0.7, 0.65))
 	_walls()
 	t.walls = wall_sides
 	t.rebuild_corridor()
@@ -62,11 +47,11 @@ func build(track: Track) -> void:
 		_chevron_rows()
 	_seat_objects()
 	_spectators()
-	if Mats.toon():
-		_road_details()
-		_rocks()
-		_grass_tufts()
+	_road_details()
+	_rocks()
+	_grass_tufts()
 	_plant_pending()
+	t.finish_terrain()
 
 
 func _box_at(st: SurfaceTool, c: Vector3, size: Vector3, col: Color, tilt := Basis()) -> void:
@@ -228,13 +213,13 @@ func _spectators() -> void:
 				_keep_out(t.P[k] + t.R[k] * side * (t.rail + 1.6), 1.7)
 			break
 	if pads > 0:
-		var pm := Mats.pbr("grass", 1.0)
+		var pm := Mats.painted("grass", 1.0)
 		pm.cull_mode = BaseMaterial3D.CULL_DISABLED
 		pad.set_material(pm)
 		var pmi := MeshInstance3D.new()
 		pmi.mesh = pad.commit()
 		_add(pmi)
-	_cast_shadows = Mats.toon() or Mats.hq()
+	_cast_shadows = true
 	for k in meshes.size():
 		if not xf[k].is_empty():
 			_mm_chunked(meshes[k], xf[k], null, [], 128.0, 170.0)
@@ -465,14 +450,19 @@ static func plant_reach(mesh: Mesh, b: Basis) -> float:
 	return reach * 0.82
 
 
-## Whether a spot lies in a retaining wall (its leaning face and cap), plus a margin.
-func _in_wall(p: Vector3, margin: float) -> bool:
-	var i := t.nearest_index(p)
+## Whether a spot lies in a retaining wall (its leaning face and cap), plus a
+## margin. `i` and `d` are the nearest road sample and the distance to it, if known.
+func _in_wall(p: Vector3, margin: float, i := -1, d := -1.0) -> bool:
+	if t.wall_reach.is_empty():
+		return false
+	if i < 0:
+		i = t.nearest_index(p)
+		d = t.dist_to_road(p)
 	var side := 1 if (p - t.P[i]).dot(t.R[i]) > 0.0 else -1
 	var reach := 0.0
 	for k in range(maxi(i - 3, 0), mini(i + 4, t.P.size())):
 		reach = maxf(reach, float(t.wall_reach.get(Vector2i(k, side), 0.0)))
-	return reach > 0.0 and t.dist_to_road(p) < t.rail + reach + margin
+	return reach > 0.0 and d < t.rail + reach + margin
 
 
 ## Register an object's footprint (centre, radius on the ground plane).
@@ -527,57 +517,59 @@ func _plant_pending() -> void:
 		var mesh: Mesh = job[0]
 		var xfs: Array = job[1]
 		var cols: Array = job[2]
-		var clear: float = job[5]
-		var own: float = job[6]          # space this plant takes once planted
+		var clear: float = job[3]        # room it needs from other objects
+		var own: float = job[4]          # room it takes once planted
+		var tree := clear > 1.0
+		# plants only turn about their trunk and scale, so one measurement of the
+		# mesh gives every copy's spread and height
+		var mesh_reach := plant_reach(mesh, Basis())
+		var mesh_top := mesh.get_aabb().end.y
 		var keep_x: Array = []
 		var keep_c: Array = []
 		for k in xfs.size():
-			var o0: Vector3 = xfs[k].origin
-			var ti := t.nearest_index(o0)
-			if t.in_tunnel(ti) and o0.y < t.P[ti].y + 9.0 and t.dist_to_road(o0) < t.rail + (7.0 if clear > 1.0 else 3.0):
-				continue      # nothing grows inside a tunnel
-			var o: Vector3 = xfs[k].origin
-			var sc: float = xfs[k].basis.get_scale().x
-			if _blocked(o, clear * clampf(sc, 0.8, 1.6)):
-				continue
-			var road_d := t.dist_to_road(o)
+			var x: Transform3D = xfs[k]
+			var o := x.origin
+			var ti := t.nearest_index(o)
+			var road_d := Vector2(t.P[ti].x - o.x, t.P[ti].z - o.z).length()
 			# never on the road, its gutters or the strip up to the rail
-			if road_d < t.rail + (0.9 if clear > 1.0 else 0.5):
+			if road_d < t.rail + (0.9 if tree else 0.5):
+				continue
+			# nothing grows inside a tunnel
+			if road_d < t.rail + (7.0 if tree else 3.0) and o.y < t.P[ti].y + 9.0 and t.in_tunnel(ti):
 				continue
 			# nor in a retaining wall: stay behind the back of its leaning face
-			if _in_wall(o, 1.0 if clear > 1.0 else 0.5):
+			if _in_wall(o, 1.0 if tree else 0.5, ti, road_d):
+				continue
+			var size := x.basis.get_scale()
+			if _blocked(o, clear * clampf(size.x, 0.8, 1.6)):
 				continue
 			# seat it on the ground as finally shaped (walls and cuts lower it after planning)
 			var ground := t.terrain_height(o.x, o.z)
 			if absf(o.y + 0.35 - ground) > 0.25:
 				o.y = ground - 0.35
-				xfs[k] = Transform3D(xfs[k].basis, o)
+				x.origin = o
 			# no branch or leaf crosses the rail line: a plant too wide for its spot
 			# is grown smaller to fit, and left out if that would make it a stump
-			var reach := plant_reach(mesh, xfs[k].basis as Basis)
-			var top: float = o.y + mesh.get_aabb().end.y * (xfs[k].basis as Basis).get_scale().y
-			# measured against every leg of the road this plant rises up to, so a
-			# tree on the slope between two hairpin legs clears the lower one too
-			var room := t.road_clearance(o, o.y - 18.0, top + 0.5) - t.rail - 0.25
-			if reach > room:
-				var fit := room / reach
-				if fit < (0.5 if clear > 1.0 else 0.4):
-					continue
-				xfs[k] = Transform3D((xfs[k].basis as Basis).scaled(Vector3(fit, fit, fit)), o)
-				sc *= fit
-			keep_x.append(xfs[k])
+			var reach := mesh_reach * size.x
+			var grown := size.x
+			if reach > road_d - t.rail - 0.25:
+				# measured against every leg of the road this plant rises up to, so a
+				# tree on the slope between two hairpin legs clears the lower one too
+				var room := t.road_clearance(o, o.y - 18.0, o.y + mesh_top * size.y + 0.5) - t.rail - 0.25
+				if reach > room:
+					var fit := room / reach
+					if fit < (0.5 if tree else 0.4):
+						continue
+					x.basis = x.basis.scaled(Vector3(fit, fit, fit))
+					grown *= fit
+			keep_x.append(x)
 			keep_c.append(cols[k] if cols.size() > k else Color.WHITE)
 			# later trunks and bushes keep clear of this one
-			_keep_out(o, own * sc)
-		if job.size() > 7:
-			# detail levels: [mesh, from, to, casts shadow] per level, in small chunks so
-			# each patch of forest switches level by its own distance from the camera
-			for lod in job[7]:
-				_mm_lod(lod[0], keep_x, keep_c, 128.0 if Mats.toon() else 48.0, lod[1], lod[2], lod[3])
-			continue
-		_cast_shadows = (Mats.hq() or Mats.toon()) and clear > 1.0      # trees cast real shadows
-		_mm_chunked(mesh, keep_x, null, keep_c, job[3], job[4])
-		_cast_shadows = false
+			_keep_out(o, own * grown)
+		# detail levels: [mesh, from, to, shadow mode], in chunks so each patch of
+		# forest switches level by its own distance from the camera
+		for lod in job[5]:
+			_mm_lod(lod[0], keep_x, keep_c, 128.0, lod[1], lod[2], lod[3])
 
 
 func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
@@ -613,7 +605,6 @@ func _mm(mesh: Mesh, xf: Array, mat: Material, colors: Array = [], vis_end := 0.
 	_add(mmi)
 
 
-## Chunked multimesh so far-away parts are culled.
 ## Chunked multimesh for one detail level, visible between `from` and `to`
 ## metres. Each chunk node sits at its own centre so its distance is measured there.
 func _mm_lod(mesh: Mesh, xf: Array, colors: Array, chunk: float, from: float, to: float, shadow: int) -> void:
@@ -649,8 +640,6 @@ func _mm_lod(mesh: Mesh, xf: Array, colors: Array, chunk: float, from: float, to
 		if shadow != 2:
 			mmi.visibility_range_begin_margin = 5.0 if from > 0.0 else 0.0
 			mmi.visibility_range_end_margin = 5.0
-			if Mats.hq():
-				mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 		_add(mmi)
 
 
@@ -668,24 +657,6 @@ func _mm_chunked(mesh: Mesh, xf: Array, mat: Material, colors: Array, chunk: flo
 
 
 # ------------------------------------------------------------------ meshes
-
-func _blob_mesh(lumps: int, spread: float, radius: float, seed_v: int) -> ArrayMesh:
-	var r := RandomNumberGenerator.new()
-	r.seed = seed_v
-	var sphere := SphereMesh.new()
-	sphere.radial_segments = 9
-	sphere.rings = 5
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for k in lumps:
-		var s := radius * r.randf_range(0.6, 1.0)
-		var off := Vector3(r.randf_range(-spread, spread), r.randf_range(-0.3, 0.6) * spread, r.randf_range(-spread, spread))
-		if k == 0:
-			off = Vector3.ZERO
-			s = radius
-		st.append_from(sphere, 0, Transform3D(Basis().scaled(Vector3(s, s * 0.85, s)), off))
-	return st.commit()
-
 
 var _toon_noise: FastNoiseLite
 var _toon_leaf := {}
@@ -845,162 +816,7 @@ func _toon_bush(seed_v: int, size: float, leaf: Color) -> ArrayMesh:
 	return mesh
 
 
-## Canopy of crossed leaf cards around a centre (textured, alpha cut).
-func _cards(st: SurfaceTool, center: Vector3, radius: float, cards: int, seed_v: int, stretch := 1.0) -> void:
-	var r := RandomNumberGenerator.new()
-	r.seed = seed_v
-	for k in cards:
-		var c := center
-		if k > 0:
-			c += Vector3(r.randf_range(-0.55, 0.55) * radius, r.randf_range(-0.35, 0.45) * radius, r.randf_range(-0.55, 0.55) * radius)
-		var yaw := r.randf() * TAU
-		var size := radius * r.randf_range(1.35, 1.8)
-		var right := Vector3(cos(yaw), 0, sin(yaw)) * size * 0.5
-		var up := (Vector3.UP * size * 0.5 * stretch).rotated(right.normalized(), r.randf_range(-0.3, 0.3))
-		st.set_normal(right.cross(up).normalized())
-		var v := [c - right - up, c + right - up, c + right + up, c - right + up]
-		var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
-		for idx in [0, 2, 1, 0, 3, 2]:
-			st.set_uv(uv[idx])
-			st.add_vertex(v[idx])
-
-
-func _trunk_surface(mesh: ArrayMesh, height: float, r0: float, r1: float) -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var trunk := CylinderMesh.new()
-	trunk.top_radius = r1
-	trunk.bottom_radius = r0
-	trunk.height = height
-	trunk.radial_segments = 5
-	st.append_from(trunk, 0, Transform3D(Basis(), Vector3(0, height * 0.5, 0)))
-	st.set_material(trunk_mat)
-	st.commit(mesh)
-
-
-func _card_tree(seed_v: int) -> ArrayMesh:
-	var mesh := ArrayMesh.new()
-	_trunk_surface(mesh, 5.5, 0.26, 0.14)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_cards(st, Vector3(0, 6.3, 0), 2.6, 10, seed_v)
-	st.set_material(leaf_mat)
-	st.commit(mesh)
-	return mesh
-
-
-func _card_cedar() -> ArrayMesh:
-	var mesh := ArrayMesh.new()
-	_trunk_surface(mesh, 3.0, 0.24, 0.16)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	# three crossed needle cards, like a sugi seen from any side
-	for k in 3:
-		var yaw := PI * k / 3.0
-		var right := Vector3(cos(yaw), 0, sin(yaw)) * 2.4
-		var lo := Vector3(0, 1.6, 0)
-		var hi := Vector3(0, 12.0, 0)
-		st.set_normal(right.cross(Vector3.UP).normalized())
-		var v := [lo - right, lo + right, hi + right, hi - right]
-		var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
-		for idx in [0, 2, 1, 0, 3, 2]:
-			st.set_uv(uv[idx])
-			st.add_vertex(v[idx])
-	st.set_material(cedar_mat)
-	st.commit(mesh)
-	return mesh
-
-
-func _card_bush(seed_v: int) -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_cards(st, Vector3(0, 0.7, 0), 1.0, 6, seed_v, 0.8)
-	st.set_material(leaf_mat)
-	return st.commit()
-
-
-var _tree_meta := {}
-var _ph_mats := {}
-
-
-func _ph_pbr(prefix: String) -> StandardMaterial3D:
-	if not _ph_mats.has(prefix):
-		var m := StandardMaterial3D.new()
-		m.albedo_texture = load("res://assets/trees/ph/%s_diff.jpg" % prefix)
-		m.normal_enabled = true
-		m.normal_texture = load("res://assets/trees/ph/%s_nor.jpg" % prefix)
-		m.roughness_texture = load("res://assets/trees/ph/%s_rough.jpg" % prefix)
-		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		_ph_mats[prefix] = m
-	return _ph_mats[prefix]
-
-
-func _ph_leaf(tex: String, center_y: float) -> ShaderMaterial:
-	var key := "%s_%d" % [tex, int(center_y)]
-	if not _ph_mats.has(key):
-		var m := ShaderMaterial.new()
-		m.shader = load("res://shaders/foliage_real.gdshader")
-		m.set_shader_parameter("leaves", load("res://assets/trees/ph/%s.png" % tex))
-		m.set_shader_parameter("leaves_nor", load("res://assets/trees/ph/%s_nor.jpg" % tex))
-		m.set_shader_parameter("center_y", center_y)
-		m.set_shader_parameter("tint", Vector3(0.44, 0.56, 0.34) if tex == "jac_leaves" else Vector3(0.6, 0.86, 0.6))
-		_ph_mats[key] = m
-	return _ph_mats[key]
-
-
-## A scanned tree assembled for the game (tools/blender_ph_tree.py): the real
-## trunk and branches with the package's own twig and leaf cards.
-func _ph_tree(file: String, center_y: float) -> ArrayMesh:
-	var scene: PackedScene = load("res://assets/trees/ph/%s.glb" % file)
-	var inst := scene.instantiate()
-	var out := ArrayMesh.new()
-	for mi: MeshInstance3D in inst.find_children("*", "MeshInstance3D", true, false):
-		var src := mi.mesh
-		for i in src.get_surface_count():
-			var mat_name := ""
-			var sm := src.surface_get_material(i)
-			if sm:
-				mat_name = sm.resource_name
-			# copy the surface without the importer's automatic detail reduction,
-			# which wrecks meshes made of separate leaf cards
-			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, src.surface_get_arrays(i))
-			var m: Material
-			if mat_name.contains("twig"):
-				m = _ph_leaf("fir_twig", center_y)
-			elif mat_name.contains("leaves"):
-				m = _ph_leaf("jac_leaves", center_y)
-			elif mat_name.contains("trunk_c"):
-				m = _ph_pbr("fir_trunk_c")
-			elif mat_name.contains("trunk_b"):
-				m = _ph_pbr("fir_trunk_b")
-			elif mat_name.contains("trunk_a"):
-				m = _ph_pbr("fir_trunk_a")
-			elif mat_name.contains("fir_tree"):
-				m = _ph_pbr("fir_bark")
-			elif mat_name.contains("branches"):
-				m = _ph_pbr("jac_branches")
-			else:
-				m = _ph_pbr("jac_trunk")
-			out.surface_set_material(out.get_surface_count() - 1, m)
-	inst.free()
-	return out
-var _leaf_mats := {}
-var _near_trees: Array = []
-var _far_trees: Array = []
 var _cast_shadows := false
-
-
-func _leaf_material(tex_name: String, center_y: float) -> ShaderMaterial:
-	var key := "%s_%d" % [tex_name, int(center_y)]
-	if not _leaf_mats.has(key):
-		var m := ShaderMaterial.new()
-		m.shader = load("res://shaders/foliage_card.gdshader")
-		m.set_shader_parameter("leaves", load("res://assets/trees/%s.png" % tex_name))
-		m.set_shader_parameter("tint", Vector3(1.0, 1.0, 1.0))
-		m.set_shader_parameter("brightness", 0.9)
-		m.set_shader_parameter("center_y", center_y)
-		_leaf_mats[key] = m
-	return _leaf_mats[key]
 
 
 ## Tapered round limb from a to b (trunk or branch), with bark UVs.
@@ -1024,188 +840,11 @@ func _limb(st: SurfaceTool, a: Vector3, b: Vector3, r0: float, r1: float, sides 
 			st.add_vertex(quad[idx][0])
 
 
-## One foliage card: a quad with its base at `root`, growing along `along`, facing `face`.
-func _leaf_quad(st: SurfaceTool, root: Vector3, along: Vector3, side: Vector3, length: float, width: float) -> void:
-	var v := [root - side * width * 0.5, root + side * width * 0.5, root + side * width * 0.5 + along * length, root - side * width * 0.5 + along * length]
-	var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
-	st.set_normal(side.cross(along).normalized())
-	for idx in [0, 2, 1, 0, 3, 2]:
-		st.set_uv(uv[idx])
-		st.add_vertex(v[idx])
-
-
-## A real 3D tree: modelled trunk and branches in scanned bark, carrying many
-## foliage clusters cut from scanned trees, spread through the crown in depth.
-func _tree3d(kind: String, seed_v: int) -> ArrayMesh:
-	var r := RandomNumberGenerator.new()
-	r.seed = seed_v
-	var mesh := ArrayMesh.new()
-	var bark := SurfaceTool.new()
-	bark.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var leaf_st := {}
-	var add_leaf := func(tex: String, root: Vector3, along: Vector3, side: Vector3, length: float, width: float) -> void:
-		if not leaf_st.has(tex):
-			var lt := SurfaceTool.new()
-			lt.begin(Mesh.PRIMITIVE_TRIANGLES)
-			leaf_st[tex] = lt
-		_leaf_quad(leaf_st[tex], root, along, side, length, width)
-	var center_y := 5.0
-	if kind == "fir":
-		var h := 14.5
-		center_y = 7.5
-		# straight tapering trunk in three pieces
-		var p0 := Vector3.ZERO
-		for k in 3:
-			var p1 := Vector3(r.randf_range(-0.05, 0.05), h * (k + 1) / 3.0, r.randf_range(-0.05, 0.05))
-			_limb(bark, p0, p1, lerpf(0.3, 0.03, k / 3.0), lerpf(0.3, 0.03, (k + 1) / 3.0), 8, p0.y * 0.5)
-			p0 = p1
-		# whorls of drooping boughs, long at the bottom, short at the top
-		var y := 2.4
-		while y < h - 0.3:
-			var t := (y - 2.4) / (h - 2.4)
-			var length := lerpf(3.4, 0.5, pow(t, 0.8)) * r.randf_range(0.85, 1.1)
-			var count := 8 if t < 0.7 else 5
-			var twist := r.randf() * TAU
-			for k in count:
-				var ang := twist + TAU * k / count + r.randf_range(-0.2, 0.2)
-				var out := Vector3(cos(ang), 0, sin(ang))
-				var along := (out + Vector3.DOWN * r.randf_range(0.12, 0.35)).normalized()
-				var side := along.cross(Vector3.UP).normalized()
-				var root := Vector3(0, y + r.randf_range(-0.2, 0.2), 0)
-				var tex := "bough_%d" % r.randi_range(0, 1)
-				# a flat bough plus an upright one through it, so it has body from every angle
-				add_leaf.call(tex, root, along, side, length, length * 0.75)
-				add_leaf.call(tex, root, along, side.cross(along).normalized(), length, length * 0.5)
-			y += lerpf(0.6, 0.4, t)
-		# leader at the very top
-		add_leaf.call("bough_0", Vector3(0, h - 1.4, 0), Vector3.UP, Vector3.RIGHT, 1.6, 1.0)
-		add_leaf.call("bough_0", Vector3(0, h - 1.4, 0), Vector3.UP, Vector3.BACK, 1.6, 1.0)
-	else:
-		var slender := kind == "slender"
-		var trunk_h := 6.5 if slender else 4.8
-		var crown := 2.0 if slender else 4.4
-		center_y = trunk_h + 1.0
-		# trunk that wanders a little as it climbs
-		var pts: Array[Vector3] = [Vector3.ZERO]
-		for k in range(1, 5):
-			pts.append(Vector3(r.randf_range(-0.25, 0.25) * k * 0.4, trunk_h * k / 4.0, r.randf_range(-0.25, 0.25) * k * 0.4))
-		for k in 4:
-			_limb(bark, pts[k], pts[k + 1], lerpf(0.3, 0.15, k / 4.0), lerpf(0.3, 0.15, (k + 1) / 4.0), 8, pts[k].y * 0.5)
-		var tips: Array[Vector3] = []
-		var n_branch := 5 if slender else 7
-		for k in n_branch:
-			var t := r.randf_range(0.5, 1.0)
-			var base := pts[2].lerp(pts[4], (t - 0.5) * 2.0)
-			var ang := TAU * k / n_branch + r.randf_range(-0.4, 0.4)
-			var dir := (Vector3(cos(ang), 0, sin(ang)) + Vector3.UP * r.randf_range(0.35, 0.9)).normalized()
-			var length := crown * r.randf_range(0.7, 1.1)
-			var mid := base + dir * length * 0.55 + Vector3.UP * 0.15
-			var tip := mid + (dir + Vector3.UP * 0.25).normalized() * length * 0.45
-			_limb(bark, base, mid, 0.11, 0.07, 5)
-			_limb(bark, mid, tip, 0.07, 0.025, 5)
-			tips.append(mid)
-			tips.append(tip)
-			# secondary twigs
-			for j in 2:
-				var sd := (dir.cross(Vector3.UP) * (1.0 if j == 0 else -1.0) + dir * 0.6 + Vector3.UP * 0.3).normalized()
-				var tw := mid + sd * length * 0.4
-				_limb(bark, mid, tw, 0.045, 0.015, 4)
-				tips.append(tw)
-		tips.append(pts[4] + Vector3.UP * crown * 0.5)
-		tips.append(pts[4] + Vector3.UP * crown * 0.15)
-		# a foliage cluster at every twig end: two or three crossed cards, each a different scan
-		for tip in tips:
-			var size := (2.0 if slender else 2.6) * r.randf_range(0.8, 1.25)
-			var cards := 3
-			for j in cards:
-				var yaw := r.randf() * TAU
-				var side := Vector3(cos(yaw), 0, sin(yaw))
-				var up := (Vector3.UP + Vector3(r.randf_range(-0.35, 0.35), 0, r.randf_range(-0.35, 0.35))).normalized()
-				if j == 2:
-					# one card lying flatter fills the crown seen from below and above
-					up = (side.cross(Vector3.UP) + Vector3.UP * 0.35).normalized()
-				add_leaf.call("cluster_%d" % r.randi_range(0, 3), tip - up * size * 0.45, up, side, size * 0.9, size)
-	bark.set_material(trunk_mat)
-	bark.commit(mesh)
-	for tex in leaf_st:
-		var lt: SurfaceTool = leaf_st[tex]
-		lt.set_material(_leaf_material(tex, center_y))
-		lt.commit(mesh)
-	return mesh
-
-
-## A tree built from photo-real cut-outs of a scanned tree (baked from Poly
-## Haven's CC0 scans): two crossed cards that meet on the trunk, lit by the scene.
-func _photo_tree(kind: String, height: float) -> ArrayMesh:
-	if _tree_meta.is_empty():
-		_tree_meta = JSON.parse_string(FileAccess.get_file_as_string("res://assets/trees/trees.json"))
-	var mesh := ArrayMesh.new()
-	for k in 2:
-		var info: Dictionary = _tree_meta["%s_%d" % [kind, k]]
-		var w: float = height * float(info.aspect)
-		var tx: float = float(info.trunk)
-		var yaw := PI * 0.5 * k
-		var right := Vector3(cos(yaw), 0, sin(yaw))
-		var left := -right * w * tx
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		st.set_normal(right.cross(Vector3.UP).normalized())
-		var v := [left, left + right * w, left + right * w + Vector3.UP * height, left + Vector3.UP * height]
-		var uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
-		for idx in [0, 2, 1, 0, 3, 2]:
-			st.set_uv(uv[idx])
-			st.add_vertex(v[idx])
-		var m := ShaderMaterial.new()
-		m.shader = load("res://shaders/foliage_card.gdshader")
-		m.set_shader_parameter("leaves", load("res://assets/trees/%s_%d.png" % [kind, k]))
-		m.set_shader_parameter("tint", Vector3(1.0, 1.0, 1.0))
-		m.set_shader_parameter("brightness", 0.9)
-		st.set_material(m)
-		st.commit(mesh)
-	return mesh
-
-
-func _tree_mesh(seed_v: int) -> ArrayMesh:
-	# deciduous: trunk + clustered canopy
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var trunk := CylinderMesh.new()
-	trunk.top_radius = 0.16
-	trunk.bottom_radius = 0.28
-	trunk.height = 5.0
-	trunk.radial_segments = 5
-	st.append_from(trunk, 0, Transform3D(Basis(), Vector3(0, 2.5, 0)))
-	var canopy := _blob_mesh(6, 1.6, 2.4, seed_v)
-	st.append_from(canopy, 0, Transform3D(Basis(), Vector3(0, 6.2, 0)))
-	return st.commit()
-
-
-func _cedar_mesh() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var trunk := CylinderMesh.new()
-	trunk.top_radius = 0.12
-	trunk.bottom_radius = 0.25
-	trunk.height = 4.0
-	trunk.radial_segments = 5
-	st.append_from(trunk, 0, Transform3D(Basis(), Vector3(0, 2.0, 0)))
-	for k in 4:
-		var c := CylinderMesh.new()
-		c.top_radius = 0.0
-		c.bottom_radius = 2.2 - k * 0.45
-		c.height = 4.2 - k * 0.5
-		c.radial_segments = 9
-		st.append_from(c, 0, Transform3D(Basis(), Vector3(0, 3.6 + k * 2.3 + c.height * 0.5, 0)))
-	return st.commit()
-
-
-# ------------------------------------------------------------------ pieces
-
 func _walls() -> void:
 	# concrete retaining wall wherever the hillside rises above the road
 	# like the anime's mountain passes: a tall stone-masonry wall rising
 	# straight from the road edge (plain concrete where the real road has it)
-	var concrete := Mats.pbr("concrete" if t.style.get("concrete_walls", false) else "masonry", 1.0)
+	var concrete := Mats.painted("concrete" if t.style.get("concrete_walls", false) else "masonry", 1.0)
 	concrete.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var fence_mat := _mat(Color(0.55, 0.6, 0.7), 0.6)
 	fence_mat.albedo_texture = _fence_texture()
@@ -1217,7 +856,7 @@ func _walls() -> void:
 	wst.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var sst := SurfaceTool.new()       # asphalt shoulder between the road edge and the wall
 	sst.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var shoulder := Mats.pbr("asphalt", 2.0, Color(0.55, 0.55, 0.57), 0.7)
+	var shoulder := Mats.painted("asphalt", 2.0, Color(0.55, 0.55, 0.57))
 	shoulder.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var fst := SurfaceTool.new()
 	fst.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1323,45 +962,6 @@ func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, uv0:
 		st.add_vertex(verts[k][0])
 
 
-func _plain_concrete_texture() -> ImageTexture:
-	# smooth cast-concrete retaining wall with form-tie dots and stains (Usui)
-	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
-	for y in 64:
-		for x in 64:
-			var g := 0.85 + 0.06 * sin(x * 0.21) * cos(y * 0.13)
-			if (x % 32 == 8 or x % 32 == 24) and (y % 32 == 8 or y % 32 == 24):
-				g = 0.6
-			if x % 64 < 1:
-				g = 0.65
-			g -= clampf((40 - y) / 200.0, 0.0, 0.15) * (0.5 + 0.5 * sin(x * 0.7))
-			img.set_pixel(x, y, Color(g, g, g * 1.02))
-	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
-
-
-func _panel_texture() -> ImageTexture:
-	# kenchi-ishi: stacked stone blocks laid diagonally, typical of Japanese
-	# mountain-road retaining walls
-	var img := Image.create(128, 128, false, Image.FORMAT_RGB8)
-	var rng2 := RandomNumberGenerator.new()
-	rng2.seed = 5
-	var tones := []
-	for k in 64:
-		tones.append(rng2.randf_range(0.72, 0.98))
-	for y in 128:
-		for x in 128:
-			var u := (x + y) / 128.0 * 4.0
-			var v := (x - y + 128) / 128.0 * 4.0
-			var fu := u - floorf(u)
-			var fv := v - floorf(v)
-			var mortar := fu < 0.08 or fv < 0.08
-			var tone: float = tones[(int(u) * 7 + int(v) * 13) % 64]
-			var g := 0.42 if mortar else tone * (0.9 + 0.1 * sin(x * 0.9) * sin(y * 1.1))
-			img.set_pixel(x, y, Color(g, g, g * 1.02))
-	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
-
-
 func _fence_texture() -> ImageTexture:
 	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
 	for y in 32:
@@ -1376,15 +976,11 @@ func _fence_texture() -> ImageTexture:
 
 
 func _trees() -> void:
-	var meshes := [_card_tree(1), _card_tree(2), _card_cedar()]
-	if ResourceLoader.exists("res://assets/trees/fir_0.png"):
-		meshes = [_tree3d("broadleaf", 11), _tree3d("broadleaf", 12), _tree3d("fir", 13)]
-	var toon_lods: Array = []
-	if Mats.toon():
-		var leafs := [Color(0.13, 0.36, 0.17), Color(0.2, 0.4, 0.14)]
-		for d in 3:
-			toon_lods.append([_toon_tree(11, leafs[0], d), _toon_tree(12, leafs[1], d), _toon_cedar(13, d)])
-		meshes = toon_lods[0]
+	# three kinds (two broadleaf, one cedar), each sculpted at three levels of detail
+	var leafs := [Color(0.13, 0.36, 0.17), Color(0.2, 0.4, 0.14)]
+	var lods: Array = []
+	for d in 3:
+		lods.append([_toon_tree(11, leafs[0], d), _toon_tree(12, leafs[1], d), _toon_cedar(13, d)])
 	var sets := [[], [], []]
 	var cols := [[], [], []]
 	for k in range(0, t.tree_data.size(), 4):
@@ -1417,58 +1013,22 @@ func _trees() -> void:
 			sets[k2].append(Transform3D(b, p))
 			var v := rng.randf_range(0.85, 1.15)
 			cols[k2].append(Color(v, v, v))
+	# planted at the end, around everything else. Full sculpt beside the road,
+	# simpler shapes up the hillside; shadows come from the simplest shape.
+	var q := Mats.quality
+	var r0: float = [35.0, 60.0, 90.0][q]
+	var r1: float = [110.0, 170.0, 240.0][q]
+	var r2: float = [300.0, 450.0, 650.0][q]
 	for kind in 3:
-		# planted at the end, around everything else (trunk + a little canopy room)
-		if Mats.hq() and ResourceLoader.exists("res://assets/trees/ph/fir_b.glb"):
-			if _near_trees.is_empty():
-				# each kind: the scanned tree at full, medium and light weight, then a flat cut-out
-				for spec in [["broadleaf_a", 8.0, "broadleaf", 12.0], ["fir_a", 12.0, "fir", 19.0], ["fir_b", 9.0, "fir", 14.1]]:
-					_near_trees.append([_ph_tree(spec[0], spec[1]), _ph_tree(spec[0] + "_m", spec[1]), _ph_tree(spec[0] + "_l", spec[1])])
-					_far_trees.append(_photo_tree(spec[2], spec[3]))
-			var q := 2
-			var game: Node = (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Game")
-			if game:
-				q = game.quality
-			# metres at which each weight hands over to the next, by graphics quality.
-			# Full detail is only for the trees right beside the car: there are
-			# hundreds of trees within a hundred metres of any point on the road.
-			var r0: float = [0.0, 12.0, 20.0][q]
-			var r1: float = [22.0, 40.0, 55.0][q]
-			var r2: float = [80.0, 110.0, 140.0][q]
-			var shadow_r: float = [0.0, 45.0, 70.0][q]
-			var t: Array = _near_trees[kind]
-			var lods: Array = []
-			if r0 > 0.0:
-				lods.append([t[0], 0.0, r0, 0])
-			lods.append([t[1], r0, r1, 0])
-			lods.append([t[2], r1, r2, 0])
-			lods.append([_far_trees[kind], r2, 900.0, 0])
-			if shadow_r > 0.0:
-				# shadows come from the light version, whatever is drawn: a tenth of the cost
-				lods.append([t[2], 0.0, shadow_r, 2])
-			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35, lods])
-		elif Mats.toon():
-			# full sculpt beside the road, simpler shapes up the hillside; shadows
-			# come from the simple shape so they cost little
-			var q := Mats.quality
-			var r0: float = [35.0, 60.0, 90.0][q]
-			var r1: float = [110.0, 170.0, 240.0][q]
-			var r2: float = [300.0, 450.0, 650.0][q]
-			var tl: Array = [[toon_lods[0][kind], 0.0, r0, 0], [toon_lods[1][kind], r0, r1, 0], [toon_lods[2][kind], r1, r2, 0]]
-			if q > 0:
-				tl.append([toon_lods[2][kind], 0.0, [0.0, 60.0, 110.0][q], 2])
-			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35, tl])
-		else:
-			_pending.append([meshes[kind], sets[kind], cols[kind], 160.0, 600.0, 1.4, 0.35])
+		var levels: Array = [[lods[0][kind], 0.0, r0, 0], [lods[1][kind], r0, r1, 0], [lods[2][kind], r1, r2, 0]]
+		if q > 0:
+			levels.append([lods[2][kind], 0.0, [0.0, 60.0, 110.0][q], 2])
+		_pending.append([lods[0][kind], sets[kind], cols[kind], 1.4, 0.35, levels])
 
 
 func _bushes() -> void:
 	# dense painted bushes along the verge, thickest on hairpin inner islands
-	var meshes := [_card_bush(11), _card_bush(12)]
-	if ResourceLoader.exists("res://assets/trees/bush_0.png"):
-		meshes = [_photo_tree("bush", 1.9), _photo_tree("fern", 0.75)]
-	if Mats.toon():
-		meshes = [_toon_bush(21, 1.0, Color(0.14, 0.38, 0.16)), _toon_bush(22, 0.55, Color(0.22, 0.42, 0.15))]
+	var meshes := [_toon_bush(21, 1.0, Color(0.14, 0.38, 0.16)), _toon_bush(22, 0.55, Color(0.22, 0.42, 0.15))]
 	var xf := [[], []]
 	var cols := [[], []]
 	var n := t.P.size()
@@ -1495,7 +1055,7 @@ func _bushes() -> void:
 				var v := rng.randf_range(0.85, 1.2)
 				cols[k].append(Color(v, v, v))
 	for k in 2:
-		_pending.append([meshes[k], xf[k], cols[k], 128.0, [110.0, 170.0, 240.0][Mats.quality] if Mats.toon() else 450.0, 0.55, 0.55])
+		_pending.append([meshes[k], xf[k], cols[k], 0.55, 0.55, [[meshes[k], 0.0, [110.0, 170.0, 240.0][Mats.quality], 0]]])
 
 
 func _poles() -> void:
@@ -1596,36 +1156,6 @@ func _delineators() -> void:
 			xf.append(Transform3D(Basis(), p + Vector3.UP * 0.8))
 		i = j
 	_mm(pole, xf, m)
-
-
-func _rumble_strips() -> void:
-	# red-orange transverse stripes painted on the approach to tight corners
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var n := t.P.size()
-	var i := 1
-	while i < n:
-		if absf(t.K[i]) < 1.0 / 30.0 or absf(t.K[i - 1]) >= 1.0 / 30.0:
-			i += 1
-			continue
-		var entry_s := t.S[i]
-		for k in 7:
-			var s0 := entry_s - 40.0 + k * 4.5
-			if s0 < 5.0:
-				continue
-			var a := t.point_at(s0, -t.hw + 0.3) + Vector3.UP * 0.014
-			var b := t.point_at(s0, t.hw - 0.3) + Vector3.UP * 0.014
-			var c := t.point_at(s0 + 1.2, -t.hw + 0.3) + Vector3.UP * 0.014
-			var d := t.point_at(s0 + 1.2, t.hw - 0.3) + Vector3.UP * 0.014
-			st.set_normal(Vector3.UP)
-			st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
-			st.add_vertex(b); st.add_vertex(c); st.add_vertex(d)
-		i += 20
-	var m := _mat(Color(0.75, 0.16, 0.08), 0.6)
-	st.set_material(m)
-	var mi := MeshInstance3D.new()
-	mi.mesh = st.commit()
-	_add(mi)
 
 
 func _ridges() -> void:
@@ -1901,7 +1431,7 @@ func _lamp(base: Vector3, toward_road: Vector3, warm: bool) -> void:
 	_piece(_boxm(Vector3(0.36, 0.1, 0.6)), _emissive(col, 5.0), Transform3D(arm_basis, base + Vector3.UP * 7.3 + toward_road * 1.8))
 	var l := SpotLight3D.new()
 	l.light_color = col
-	l.light_energy = 3.5 * (0.42 if Mats.toon() else 1.0)
+	l.light_energy = 1.47
 	l.spot_range = 16.0
 	l.spot_angle = 55.0
 	l.spot_attenuation = 0.9
@@ -1937,7 +1467,7 @@ func _vending(p: Vector3, facing: Vector3) -> void:
 	_piece(_boxm(Vector3(0.8, 0.12, 0.02)), _emissive(Color(1.0, 0.5, 0.2), 1.5), Transform3D(b, p + Vector3.UP * 0.75 + facing * 0.38))
 	var l := OmniLight3D.new()
 	l.light_color = Color(0.9, 0.95, 1.0)
-	l.light_energy = 1.2 * (0.3 if Mats.toon() else 1.0)
+	l.light_energy = 0.36
 	l.omni_range = 6.0
 	l.position = p + Vector3.UP * 1.3 + facing * 1.0
 	_add(l)
@@ -1986,7 +1516,7 @@ func _summit_area() -> void:
 	# a couple of parked cars
 	var colors := [Color(0.75, 0.1, 0.1), Color(0.15, 0.15, 0.18), Color(0.9, 0.9, 0.92)]
 	for k in 3:
-		var m := CarModel.create(["coupe", "sedan", "hatch"][k], colors[k], colors[k].darkened(0.4))
+		var m := CarModel.for_car(["fc3s", "s13", "eg6"][k], colors[k])
 		m.set_lights(false, true)
 		m.position = centre + right * 3.0 + fwd * (-9.0 + k * 6.0)
 		m.basis = Basis.looking_at(right, Vector3.UP) * Basis().scaled(Vector3.ONE * 0.92)
@@ -2104,7 +1634,7 @@ func _curve_mirror(base: Vector3, look: Vector3, orange: Material, mirror_mat: M
 ## with the grass bank behind it, like the night corners in the anime's
 ## background paintings. One continuous strip per run so it reads smooth.
 func _curbs() -> void:
-	var curb := Mats.pbr("concrete", 1.0, Color(0.9, 0.9, 0.88))
+	var curb := Mats.painted("concrete", 1.0, Color(0.9, 0.9, 0.88))
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# section across the curb (lateral offset from the rail line, height)
@@ -2582,7 +2112,6 @@ func _extrude(poly: Array, base: float, h: float, wall_mat: Material, roof_mat: 
 
 
 var _facade_tex: Texture2D
-var _roof_tex: Texture2D
 
 
 func _facade_mat(wall: Color) -> ShaderMaterial:
@@ -2597,9 +2126,7 @@ func _facade_mat(wall: Color) -> ShaderMaterial:
 
 
 func _roof_mat(c: Color) -> StandardMaterial3D:
-	if _roof_tex == null:
-		_roof_tex = load("res://assets/textures/roof_tiles.png")
-	var m := Mats.pbr("roof", 1.0, (c * 3.0).lerp(Color.WHITE, 0.5))
+	var m := Mats.painted("roof", 1.0, (c * 3.0).lerp(Color.WHITE, 0.5))
 	return m
 
 
@@ -2688,7 +2215,7 @@ func _tunnels() -> void:
 	var tiles := _mat(Color(0.8, 0.8, 0.78), 0.35)
 	tiles.albedo_texture = ImageTexture.create_from_image(tile_img)
 	tiles.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var arch := Mats.pbr("concrete", 1.0, Color(0.6, 0.6, 0.6))
+	var arch := Mats.painted("concrete", 1.0, Color(0.6, 0.6, 0.6))
 	arch.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var curb_mat := _mat(Color(0.58, 0.58, 0.56), 0.9)
 	curb_mat.albedo_texture = load("res://assets/textures/concrete.png")
@@ -2754,7 +2281,7 @@ func _tunnels() -> void:
 				if (i - i0) % 15 == 0:
 					var l := OmniLight3D.new()
 					l.light_color = Color(1.0, 0.62, 0.3)
-					l.light_energy = 3.0 * (0.25 if Mats.toon() else 1.0)
+					l.light_energy = 0.75
 					l.omni_range = 18.0
 					l.position = lp + Vector3.DOWN * 1.0 + t.R[i] * 1.0
 					_add(l)

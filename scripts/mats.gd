@@ -1,37 +1,7 @@
 class_name Mats
 extends RefCounted
-## Scanned PBR materials (Poly Haven, CC0): colour, normal, roughness and
-## ambient occlusion maps. Falls back to plain colour if a map is missing.
-
-static var _cache := {}
-
-
-## Art style. The game is drawn as a cartoon (cel shading, ink lines); the
-## photo-style renderer is kept as an option in the graphics menu.
-static var realistic := false
-
-
-## The photo-style renderer needs its scanned textures, which the standard
-## download leaves out to stay small.
-static func has_realistic() -> bool:
-	return ResourceLoader.exists("res://assets/pbr/asphalt_diff.jpg")
-
-
-static func hq() -> bool:
-	return realistic and RenderingServer.get_rendering_device() != null and has_realistic()
-
-
-## Cartoon rendering with the full desktop renderer (ink lines need it).
-static func toon() -> bool:
-	return not hq() and RenderingServer.get_rendering_device() != null
-
-
-static func tex(name: String, kind: String) -> Texture2D:
-	var path := "res://assets/pbr/%s_%s.jpg" % [name, kind]
-	if not _cache.has(path):
-		_cache[path] = load(path) if ResourceLoader.exists(path) else null
-	return _cache[path]
-
+## Materials for the cartoon look: painted surfaces, cel shading, and the
+## settings the scenery reads while it is built.
 
 ## Graphics level 0-2 (set by Game): how far detail is drawn, shadows, resolution.
 static var quality := 1
@@ -39,6 +9,12 @@ static var quality := 1
 static var crowd := false
 static var _paint: ImageTexture
 static var moon_dir := Vector3(-0.35, 0.55, 0.75)
+
+
+## Ink outlines are drawn from the depth and normal buffers, which only the
+## desktop renderer provides.
+static func can_ink() -> bool:
+	return RenderingServer.get_rendering_device() != null
 
 
 ## Soft blotchy noise the cartoon shaders use to break tone edges into brush dabs.
@@ -57,7 +33,7 @@ static func paint_tex() -> ImageTexture:
 ## Turns a standard material into a cel-shaded one: flat colour, a hard edge
 ## between light and shade, no gloss.
 static func toonify(m: StandardMaterial3D) -> StandardMaterial3D:
-	if not toon() or m.has_meta("toon") or m.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
+	if m.has_meta("toon") or m.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
 		return m
 	m.set_meta("toon", true)
 	if m.metallic > 0.4:
@@ -121,34 +97,14 @@ static func _shadow_budget(g: GeometryInstance3D) -> void:
 				g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
-## A full PBR material. `scale` repeats the texture across the mesh's UVs.
-## In the cartoon style: the painted version of the surface, cel-shaded.
-static func pbr(name: String, scale := 1.0, tint := Color.WHITE, rough_mul := 1.0) -> StandardMaterial3D:
+## A painted surface (assets/toon/<name>.png), cel-shaded. `scale` repeats the
+## texture across the mesh's UVs; `tint` colours it.
+static func painted(name: String, scale := 1.0, tint := Color.WHITE) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
-	if toon():
-		var path := "res://assets/toon/%s.png" % name
-		# painted steel is plain: white guardrails read as clean flat shapes
-		m.albedo_texture = load(path) if ResourceLoader.exists(path) and name != "metal" else null
-		m.albedo_color = Color(minf(tint.r * 1.25, 1.0), minf(tint.g * 1.25, 1.0), minf(tint.b * 1.25, 1.0))
-		m.uv1_scale = Vector3(scale, scale, scale)
-		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		return toonify(m)
-	m.albedo_color = tint
-	m.albedo_texture = tex(name, "diff")
-	var n := tex(name, "nor")
-	if n:
-		m.normal_enabled = true
-		m.normal_texture = n
-		m.normal_scale = 1.0
-	var r := tex(name, "rough")
-	if r:
-		m.roughness_texture = r
-		m.roughness = rough_mul
-	var ao := tex(name, "ao")
-	if ao:
-		m.ao_enabled = true
-		m.ao_texture = ao
-		m.ao_light_affect = 0.4
+	var path := "res://assets/toon/%s.png" % name
+	# painted steel is plain: white guardrails read as clean flat shapes
+	m.albedo_texture = load(path) if ResourceLoader.exists(path) and name != "metal" else null
+	m.albedo_color = Color(minf(tint.r * 1.25, 1.0), minf(tint.g * 1.25, 1.0), minf(tint.b * 1.25, 1.0))
 	m.uv1_scale = Vector3(scale, scale, scale)
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	return m
+	return toonify(m)

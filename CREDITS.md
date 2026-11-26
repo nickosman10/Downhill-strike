@@ -12,3 +12,12 @@
 
 ## Music
 See `assets/music/CREDITS.md` (all CC0).
+
+## Surfaces
+- The painted wall, road, grass and roof textures (`assets/toon/`) are made
+  by `tools/make_toon_textures.py` from CC0 scanned materials by Poly Haven —
+  https://polyhaven.com/license
+
+## Fonts
+- Dela Gothic One and M PLUS Rounded 1c, both under the SIL Open Font
+  License 1.1. See `assets/fonts/README.txt`.

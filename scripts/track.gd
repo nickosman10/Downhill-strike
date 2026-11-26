@@ -426,19 +426,10 @@ func _mat(color: Color, rough := 0.9) -> StandardMaterial3D:
 
 
 func _build_road_mesh() -> void:
-	# real tarmac: aggregate, cracks, sealed seams and repair patches (6 m tile)
-	# scanned tarmac, slightly damp so headlights and lamps streak across it
-	var asphalt: Material = Mats.pbr("asphalt", 2.0, Color(0.55, 0.55, 0.57), 0.7)
-	if Mats.hq():
-		var road := ShaderMaterial.new()
-		road.shader = load("res://shaders/road.gdshader")
-		for k in ["diff", "nor", "rough", "ao"]:
-			road.set_shader_parameter(k, Mats.tex("asphalt", k))
-		asphalt = road
-	var concrete := Mats.pbr("concrete", 2.0, Color(0.8, 0.8, 0.78))
+	var asphalt := Mats.painted("asphalt", 2.0, Color(0.55, 0.55, 0.57))
+	var concrete := Mats.painted("concrete", 2.0, Color(0.8, 0.8, 0.78))
 	var gravel := _mat(Color(0.22, 0.2, 0.17))
-	# grass bank beyond the verge, with the grass/leaf-litter detail texture
-	var grass := Mats.pbr("grass", 3.0)
+	var grass := Mats.painted("grass", 3.0)      # bank beyond the verge
 	# surface id per profile strip (strip k joins profile point k and k+1)
 	var strip_mat := [2, 3, 1, 1, 0, 1, 1, 3, 2]
 	var mats := [asphalt, concrete, gravel, grass]
@@ -529,24 +520,17 @@ func _build_markings() -> void:
 
 
 func _build_guardrails() -> void:
-	# Japanese guard rail: a white-painted corrugated steel beam (two waves),
-	# bolted through spacer blocks to round posts every two metres.
-	var lite := Mats.toon()       # drawn simply, and in stretches that can be culled
-	# beam cross-section (out from the posts toward the road, height): smooth double wave
+	# Japanese guard rail: a white-painted steel beam with two ridges on round
+	# posts every two metres. Built in 120 m stretches so far ones are not drawn.
+	# beam cross-section: [out from the posts toward the road, height]
 	var prof: Array = []
-	var segs := 6 if lite else 16
+	var segs := 6
 	for k in segs + 1:
-		var t := float(k) / segs
-		var wave := 0.5 - 0.5 * cos(t * TAU * 2.0)          # two crests
-		if lite:
-			wave = [0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0][k]
-		prof.append([0.035 + 0.05 * wave, lerpf(0.42, 0.74, t)])
-	var thick := 0.012
-	var rail_mat := Mats.pbr("metal", 1.0, Color(0.92, 0.93, 0.94), 0.75)
-	rail_mat.metallic = 0.25
-	rail_mat.normal_scale = 0.35
-	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var stretch := 60 if lite else P.size()
+		var ridge: float = [0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0][k]
+		prof.append([0.035 + 0.05 * ridge, lerpf(0.42, 0.74, float(k) / segs)])
+	var steel := Mats.painted("metal", 1.0, Color(0.6, 0.6, 0.6))
+	steel.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var stretch := 60
 	for c0 in range(1, P.size(), stretch):
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -558,40 +542,34 @@ func _build_guardrails() -> void:
 				any = true
 				var v0 := S[i - 1] / 1.5
 				var v1 := S[i] / 1.5
-				for face: float in ([1.0] if lite else [1.0, -1.0]):           # road face, then back face
-					for k in segs:
-						var pa: Array = prof[k]
-						var pb: Array = prof[k + 1]
-						var off := 0.0 if face > 0.0 else thick
-						var lat_a: float = side * (rail - pa[0] + off)
-						var lat_b: float = side * (rail - pb[0] + off)
-						var a0: Vector3 = P[i - 1] + R[i - 1] * lat_a + Vector3.UP * pa[1]
-						var a1: Vector3 = P[i - 1] + R[i - 1] * lat_b + Vector3.UP * pb[1]
-						var b0: Vector3 = P[i] + R[i] * lat_a + Vector3.UP * pa[1]
-						var b1: Vector3 = P[i] + R[i] * lat_b + Vector3.UP * pb[1]
-						# smooth normals from the neighbouring profile points
-						var na := _rail_normal(prof, k, side, i) * face
-						var nb := _rail_normal(prof, k + 1, side, i) * face
-						var quad := [[a0, na, Vector2(float(k) / segs, v0)], [b0, na, Vector2(float(k) / segs, v1)],
-							[b1, nb, Vector2(float(k + 1) / segs, v1)], [a1, nb, Vector2(float(k + 1) / segs, v0)]]
-						var order := [0, 1, 3, 3, 1, 2] if face * side > 0.0 else [0, 3, 1, 3, 2, 1]
-						for idx in order:
-							st.set_normal(quad[idx][1])
-							st.set_uv(quad[idx][2])
-							st.add_vertex(quad[idx][0])
+				for k in segs:
+					var pa: Array = prof[k]
+					var pb: Array = prof[k + 1]
+					var lat_a: float = side * (rail - pa[0])
+					var lat_b: float = side * (rail - pb[0])
+					var a0: Vector3 = P[i - 1] + R[i - 1] * lat_a + Vector3.UP * pa[1]
+					var a1: Vector3 = P[i - 1] + R[i - 1] * lat_b + Vector3.UP * pb[1]
+					var b0: Vector3 = P[i] + R[i] * lat_a + Vector3.UP * pa[1]
+					var b1: Vector3 = P[i] + R[i] * lat_b + Vector3.UP * pb[1]
+					var na := _rail_normal(prof, k, side, i)
+					var nb := _rail_normal(prof, k + 1, side, i)
+					var quad := [[a0, na, Vector2(float(k) / segs, v0)], [b0, na, Vector2(float(k) / segs, v1)],
+						[b1, nb, Vector2(float(k + 1) / segs, v1)], [a1, nb, Vector2(float(k + 1) / segs, v0)]]
+					for idx: int in ([0, 1, 3, 3, 1, 2] if side > 0.0 else [0, 3, 1, 3, 2, 1]):
+						st.set_normal(quad[idx][1])
+						st.set_uv(quad[idx][2])
+						st.add_vertex(quad[idx][0])
 		if not any:
 			continue
-		st.set_material(rail_mat)
+		st.set_material(steel)
 		var mi := MeshInstance3D.new()
 		mi.mesh = st.commit()
-		if lite:
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mi.visibility_range_end = 520.0
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visibility_range_end = 520.0
 		add_child(mi)
-	# posts, spacer blocks, bolts and reflectors
+	# posts, spacer blocks and reflectors
 	var posts: Array[Transform3D] = []
 	var blocks: Array[Transform3D] = []
-	var bolts: Array[Transform3D] = []
 	var reflectors: Array[Transform3D] = []
 	var next_s := 0.0
 	var count := 0
@@ -607,46 +585,28 @@ func _build_guardrails() -> void:
 			var out: Vector3 = R[i] * side
 			posts.append(Transform3D(basis, P[i] + out * (rail + 0.1) + Vector3.UP * 0.3))
 			blocks.append(Transform3D(basis, P[i] + out * (rail + 0.03) + Vector3.UP * 0.58))
-			var bolt_b := Basis.looking_at(-out, Vector3.UP) * Basis(Vector3.RIGHT, PI / 2)
-			bolts.append(Transform3D(bolt_b, P[i] + out * (rail - 0.04) + Vector3.UP * 0.58))
 			if count % 4 == 0:
-				reflectors.append(Transform3D(bolt_b, P[i] + out * (rail - 0.095) + Vector3.UP * 0.58 + D[i] * 0.3))
+				var facing := Basis.looking_at(-out, Vector3.UP) * Basis(Vector3.RIGHT, PI / 2)
+				reflectors.append(Transform3D(facing, P[i] + out * (rail - 0.095) + Vector3.UP * 0.58 + D[i] * 0.3))
 	var post := CylinderMesh.new()
 	post.top_radius = 0.057
 	post.bottom_radius = 0.057
 	post.height = 1.1
-	post.radial_segments = 6 if lite else 12
+	post.radial_segments = 6
 	post.rings = 1
-	var post_mat := Mats.pbr("metal", 1.0, Color(0.9, 0.9, 0.91), 0.8)
-	post_mat.metallic = 0.25
-	post_mat.normal_scale = 0.3
 	var refl := CylinderMesh.new()
 	refl.top_radius = 0.035
 	refl.bottom_radius = 0.035
 	refl.height = 0.012
-	refl.radial_segments = 8 if lite else 16
+	refl.radial_segments = 8
 	refl.rings = 1
 	var refl_mat := _mat(Color(1.0, 0.6, 0.1), 0.2)
 	refl_mat.emission_enabled = true
 	refl_mat.emission = Color(1.0, 0.55, 0.1)
 	refl_mat.emission_energy_multiplier = 1.6
-	if lite:
-		# in stretches, drawn only near the car; the bolts are too small to matter
-		_multimesh_cells(post, posts, post_mat, 260.0)
-		_multimesh_cells(_box(Vector3(0.09, 0.2, 0.14)), blocks, post_mat, 160.0)
-		_multimesh_cells(refl, reflectors, refl_mat, 260.0)
-		return
-	add_child(_multimesh(post, posts, post_mat))
-	add_child(_multimesh(_box(Vector3(0.09, 0.2, 0.14)), blocks, post_mat))
-	var bolt := CylinderMesh.new()
-	bolt.top_radius = 0.014
-	bolt.bottom_radius = 0.014
-	bolt.height = 0.02
-	bolt.radial_segments = 6
-	var bolt_mat := _mat(Color(0.55, 0.55, 0.57), 0.35)
-	bolt_mat.metallic = 0.9
-	add_child(_multimesh(bolt, bolts, bolt_mat))
-	add_child(_multimesh(refl, reflectors, refl_mat))
+	_multimesh_cells(post, posts, steel, 260.0)
+	_multimesh_cells(_box(Vector3(0.09, 0.2, 0.14)), blocks, steel, 160.0)
+	_multimesh_cells(refl, reflectors, refl_mat, 260.0)
 
 
 ## Many copies of a mesh, grouped into 120 m cells that are each drawn only
@@ -695,35 +655,17 @@ func _box(size: Vector3) -> BoxMesh:
 	return b
 
 
-func _multimesh(mesh: Mesh, xforms: Array[Transform3D], mat: Material) -> MultiMeshInstance3D:
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = mesh
-	mm.instance_count = xforms.size()
-	for k in xforms.size():
-		mm.set_instance_transform(k, xforms[k])
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	mmi.material_override = mat
-	return mmi
-
-
+## Trees for the two invented courses (no map data): the same sculpted
+## cartoon trees as the real roads, scattered along the grass on both sides.
 func _build_trees() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(course.get("id", "x"))
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.0
-	cone.bottom_radius = 1.6
-	cone.height = 6.0
-	cone.radial_segments = 6
-	cone.rings = 1
-	var trunk := CylinderMesh.new()
-	trunk.top_radius = 0.18
-	trunk.bottom_radius = 0.22
-	trunk.height = 1.6
-	trunk.radial_segments = 5
-	var tops: Array[Transform3D] = []
-	var trunks: Array[Transform3D] = []
+	var sc := Scenery.new()
+	var leafs := [Color(0.13, 0.36, 0.17), Color(0.2, 0.4, 0.14)]
+	var near: Array = [sc._toon_tree(11, leafs[0], 0), sc._toon_tree(12, leafs[1], 0), sc._toon_cedar(13, 0)]
+	var far: Array = [sc._toon_tree(11, leafs[0], 2), sc._toon_tree(12, leafs[1], 2), sc._toon_cedar(13, 2)]
+	var kinds: Array = [[], [], []]
+	var n := 0
 	for i in range(0, P.size(), 2):
 		for side in [-1.0, 1.0]:
 			var gw: float = grass_l[i] if side < 0.0 else grass_r[i]
@@ -733,43 +675,27 @@ func _build_trees() -> void:
 				if rng.randf() > 0.55:
 					continue
 				var off := rng.randf_range(1.8, gw)
-				var lat: float = side * (rail + off)
-				var p: Vector3 = P[i] + R[i] * lat + D[i] * rng.randf_range(-1.0, 1.0)
-				p.y += -off * 0.3
-				var sc := rng.randf_range(0.7, 1.5)
-				var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.4), sc))
-				tops.append(Transform3D(b, p + Vector3.UP * (1.2 + 3.0) * b.y.length()))
-				trunks.append(Transform3D(b, p + Vector3.UP * 0.8 * b.y.length()))
-	if Mats.toon():
-		# the same sculpted cartoon trees as the real-road courses
-		var sc := Scenery.new()
-		var leafs := [Color(0.13, 0.36, 0.17), Color(0.2, 0.4, 0.14)]
-		var near_r: float = [35.0, 60.0, 90.0][Mats.quality]
-		var far_r: float = [300.0, 450.0, 650.0][Mats.quality]
-		var fulls: Array = [sc._toon_tree(11, leafs[0], 0), sc._toon_tree(12, leafs[1], 0), sc._toon_cedar(13, 0)]
-		var kinds: Array = [[], [], []]
-		for k in trunks.size():
-			var x: Transform3D = trunks[k]
-			var up := x.basis.y.length()
-			var b := x.basis.scaled(Vector3(0.8, 0.8, 0.8))
-			var root := x.origin - Vector3.UP * 0.8 * up
-			# no branch or leaf crosses the rail line: smaller trees close to the road
-			var reach := Scenery.plant_reach(fulls[k % 3], b)
-			var room := dist_to_road(root) - rail - 0.25
-			if reach > room:
-				if room / reach < 0.5:
-					continue
-				b = b.scaled(Vector3.ONE * (room / reach))
-			kinds[k % 3].append(Transform3D(b, root))
-		for k in 3:
-			var typed: Array[Transform3D] = []
-			typed.assign(kinds[k])
-			var far: Mesh = sc._toon_cedar(13, 2) if k == 2 else sc._toon_tree(11 + k, leafs[k], 2)
-			_multimesh_cells(fulls[k], typed, null, near_r)
-			_multimesh_cells(far, typed, null, far_r, near_r)
-		return
-	add_child(_multimesh(cone, tops, _mat(Color(0.06, 0.16, 0.08))))
-	add_child(_multimesh(trunk, trunks, _mat(Color(0.2, 0.13, 0.08))))
+				var root: Vector3 = P[i] + R[i] * side * (rail + off) + D[i] * rng.randf_range(-1.0, 1.0)
+				root.y -= off * 0.3
+				var size := rng.randf_range(0.7, 1.5) * 0.8
+				var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(size, size * rng.randf_range(0.9, 1.4), size))
+				var kind := n % 3
+				n += 1
+				# no branch or leaf crosses the rail line: smaller trees close to the road
+				var reach := Scenery.plant_reach(near[kind], b)
+				var room := dist_to_road(root) - rail - 0.25
+				if reach > room:
+					if room / reach < 0.5:
+						continue
+					b = b.scaled(Vector3.ONE * (room / reach))
+				kinds[kind].append(Transform3D(b, root))
+	var near_r: float = [35.0, 60.0, 90.0][Mats.quality]
+	var far_r: float = [300.0, 450.0, 650.0][Mats.quality]
+	for k in 3:
+		var typed: Array[Transform3D] = []
+		typed.assign(kinds[k])
+		_multimesh_cells(near[k], typed, null, near_r)
+		_multimesh_cells(far[k], typed, null, far_r, near_r)
 
 
 func _build_start_finish() -> void:
@@ -983,11 +909,8 @@ func terrain_height(x: float, z: float) -> float:
 
 func _build_terrain() -> void:
 	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/terrain_toon.gdshader" if Mats.toon() else "res://shaders/terrain.gdshader")
+	mat.shader = load("res://shaders/terrain_toon.gdshader")
 	mat.set_shader_parameter("paint", Mats.paint_tex())
-	for pair in [["forest_diff", "forest", "diff"], ["forest_nor", "forest", "nor"], ["forest_rough", "forest", "rough"],
-			["rock_diff", "rock", "diff"], ["rock_nor", "rock", "nor"], ["rock_rough", "rock", "rough"]]:
-		mat.set_shader_parameter(pair[0], Mats.tex(pair[1], pair[2]))
 	mat.set_shader_parameter("canopy_tex", load("res://assets/textures/canopy.png"))
 	if terrain_info.has("aerial"):
 		var tex: Texture2D = load("res://tracks/" + terrain_info.aerial)
@@ -998,9 +921,9 @@ func _build_terrain() -> void:
 			mat.set_shader_parameter("use_aerial", 1.0)
 	terrain_h = _load_grid(terrain_info)
 	_carve_corridor()
-	_corridor_mask(mat)
+	# (the detailed ground is meshed last, in finish_terrain: the scenery still
+	# shapes it under walls and objects; its road cut-out follows the walls)
 	_terrain_mat = mat
-	_grid_mesh(terrain_info, terrain_h, mat, Rect2())
 	if not far_info.is_empty():
 		# real mountains and valleys out to the horizon, with a hole where the
 		# detailed terrain around the road sits
@@ -1102,17 +1025,18 @@ func _corridor_mask(mat: ShaderMaterial) -> void:
 	var cell: float = terrain_info.cell
 	var w := int((terrain_info.nx - 1) * cell)
 	var h := int((terrain_info.nz - 1) * cell)
-	# per 1 m pixel: floor height, ceiling height, and how far across its road
-	# the pixel lies. Ground between floor and ceiling is not drawn.
-	var data := PackedFloat32Array()
-	data.resize(w * h * 3)
+	# per 1 m pixel: floor height and ceiling height. Ground between them is not drawn.
+	var data := PackedFloat32Array()      # floor, ceiling per pixel
+	data.resize(w * h * 2)
 	data.fill(1.0e6)
+	var filled := PackedByteArray()
+	filled.resize(w * h)
 	var half := rail + 0.88      # right up to the wall line
 	for i in range(0, P.size() - 1):
 		var tunnel := in_tunnel(i) or in_tunnel(i + 1)
 		var seg := S[i + 1] - S[i]
-		var steps := maxi(1, int(ceil(seg / 0.4)))
-		for k in range(-6 if i == 0 else 0, steps + 1):
+		var steps := maxi(1, int(ceil(seg / 0.55)))      # (1 m pixels: samples closer than 0.7 m leave no gaps)
+		for k in range(-5 if i == 0 else 0, steps + 1):
 			var f := float(k) / steps
 			var c := P[i].lerp(P[i + 1], f)       # (a little before the very first point too)
 			var r := R[i].lerp(R[i + 1], f).normalized()
@@ -1120,27 +1044,27 @@ func _corridor_mask(mat: ShaderMaterial) -> void:
 			# away as well, or the hillside would show in front of the stones
 			var hl := maxf(half, rail + maxf(float(wall_reach.get(Vector2i(i, -1), 0.0)), float(wall_reach.get(Vector2i(i + 1, -1), 0.0))))
 			var hr := maxf(half, rail + maxf(float(wall_reach.get(Vector2i(i, 1), 0.0)), float(wall_reach.get(Vector2i(i + 1, 1), 0.0))))
-			var across := int(ceil((hl + hr) / 0.4))
+			var across := int(ceil((hl + hr) / 0.55))
 			for m in across + 1:
 				var l := lerpf(-hl, hr, float(m) / across)
 				var q := c + r * l
 				var px := int(q.x - ox)
 				var pz := int(q.z - oz)
 				if px >= 0 and pz >= 0 and px < w and pz < h:
-					var idx := (pz * w + px) * 3
+					var idx := (pz * w + px) * 2
 					# open road: nothing of the hillside above the road edge or ditch.
 					# tunnel: the bore is kept clear, the mountain above it stays.
 					# Where two legs of the road share a pixel, the lower one decides.
 					var fl := c.y - (0.3 if tunnel else 0.12)
 					var ce := c.y + 6.8 if tunnel else 1.0e6
-					if data[idx + 2] > 1.0e5:
+					if filled[pz * w + px] == 0:
+						filled[pz * w + px] = 1
 						data[idx] = fl
 						data[idx + 1] = ce
 					else:
 						data[idx] = minf(data[idx], fl)
 						data[idx + 1] = maxf(data[idx + 1], ce)
-					data[idx + 2] = minf(data[idx + 2], absf(l))
-	var img := Image.create_from_data(w, h, false, Image.FORMAT_RGBF, data.to_byte_array())
+	var img := Image.create_from_data(w, h, false, Image.FORMAT_RGF, data.to_byte_array())
 	mat.set_shader_parameter("corridor", ImageTexture.create_from_image(img))
 	mat.set_shader_parameter("corridor_origin", Vector2(ox, oz))
 	mat.set_shader_parameter("corridor_size", Vector2(w, h))
@@ -1153,13 +1077,12 @@ func rebuild_corridor() -> void:
 		_corridor_mask(_terrain_mat as ShaderMaterial)
 
 
-var _terrain_nodes: Array[Node] = []
 var _terrain_mat: Material
 
 
 ## Lower the hillside under walls and slope frames: each cap (x, z, max height)
 ## pulls down the four terrain vertices of the cell it falls in, so the drawn
-## surface at that spot can't rise above it. Rebuilds the near terrain mesh.
+## surface at that spot can't rise above it.
 func cap_terrain(caps: PackedVector3Array, fills := PackedVector3Array()) -> void:
 	if terrain_h.is_empty() or (caps.is_empty() and fills.is_empty()):
 		return
@@ -1182,10 +1105,12 @@ func cap_terrain(caps: PackedVector3Array, fills := PackedVector3Array()) -> voi
 						continue
 					var k := gj * nx + gi
 					terrain_h[k] = maxf(terrain_h[k], c.y) if pass_i == 0 else minf(terrain_h[k], c.y)
-	for n in _terrain_nodes:
-		n.queue_free()
-	_terrain_nodes.clear()
-	_grid_mesh(terrain_info, terrain_h, _terrain_mat, Rect2())
+
+
+## Mesh the detailed ground once everything that shapes it has been placed.
+func finish_terrain() -> void:
+	if not terrain_h.is_empty():
+		_grid_mesh(terrain_info, terrain_h, _terrain_mat, Rect2())
 
 
 ## Drawn height of the coarse far terrain at a point (same triangles as its mesh).
@@ -1313,68 +1238,9 @@ func _grid_mesh(info: Dictionary, h: PackedFloat32Array, mat: Material, hole: Re
 			var mi := MeshInstance3D.new()
 			mi.mesh = mesh
 			mi.material_override = mat
-			if Mats.toon():
-				# the hills are lit flat; only things on them throw drawn shadows
-				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			# the hills are lit flat; only things on them throw drawn shadows
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(mi)
-			if not hole.has_area():
-				_terrain_nodes.append(mi)
-
-
-func _cone(st: SurfaceTool, base: Vector3, r: float, height: float, col: Color, sides := 7) -> void:
-	var tip := base + Vector3.UP * height
-	for k in sides:
-		var a0 := TAU * k / sides
-		var a1 := TAU * (k + 1) / sides
-		var p0 := base + Vector3(cos(a0) * r, 0, sin(a0) * r)
-		var p1 := base + Vector3(cos(a1) * r, 0, sin(a1) * r)
-		var am := (a0 + a1) * 0.5
-		var n := Vector3(cos(am), r / height, sin(am)).normalized()
-		st.set_color(col.darkened(0.25))
-		st.set_normal(n)
-		st.add_vertex(p0)
-		st.set_color(col)
-		st.set_normal(Vector3.UP)
-		st.add_vertex(tip)
-		st.set_color(col.darkened(0.25))
-		st.set_normal(n)
-		st.add_vertex(p1)
-
-
-func _cedar_mesh() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_cone(st, Vector3(0, 0, 0), 0.28, 3.5, Color(0.2, 0.13, 0.08), 5)
-	_cone(st, Vector3(0, 2.0, 0), 2.3, 6.0, Color(0.07, 0.15, 0.08))
-	_cone(st, Vector3(0, 4.8, 0), 1.8, 5.0, Color(0.08, 0.17, 0.09))
-	_cone(st, Vector3(0, 7.6, 0), 1.2, 4.2, Color(0.09, 0.19, 0.1))
-	return st.commit()
-
-
-func _build_forest() -> void:
-	var mesh := _cedar_mesh()
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 1.0
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var chunk := 160.0
-	var buckets := {}
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	for k in range(0, tree_data.size(), 4):
-		var p := Vector3(tree_data[k], tree_data[k + 1] - 0.3, tree_data[k + 2])
-		var sc: float = tree_data[k + 3] * 1.25
-		var key := Vector2i(floori(p.x / chunk), floori(p.z / chunk))
-		if not buckets.has(key):
-			buckets[key] = []
-		var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc))
-		buckets[key].append(Transform3D(b, p))
-	for key in buckets:
-		var xf: Array[Transform3D] = []
-		xf.assign(buckets[key])
-		var mmi := _multimesh(mesh, xf, mat)
-		mmi.visibility_range_end = 520.0
-		add_child(mmi)
 
 
 func _chevron_texture() -> ImageTexture:

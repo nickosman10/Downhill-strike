@@ -10,7 +10,6 @@ extends Control
 signal start_race
 
 const ACCENT := Color(1.0, 0.83, 0.12)
-const PANEL := Color(0.02, 0.035, 0.09, 0.84)
 const UI_SIZE := Vector2(1600, 960)
 
 var courses: Array
@@ -317,13 +316,6 @@ func _build_main() -> void:
 			# the scenery is rebuilt at the new level
 			get_tree().reload_current_scene())
 		col.add_child(gfx)
-		# art style: the cartoon look, or the heavier photo-style renderer
-		if Mats.has_realistic():
-			var style := _button("STYLE: " + ("REALISTIC" if Mats.realistic else "ANIME"), 22, 54)
-			style.pressed.connect(func():
-				Game.set_realistic(not Mats.realistic)
-				get_tree().reload_current_scene())
-			col.add_child(style)
 	if not OS.has_feature("web"):
 		var quit := _button("EXIT", 28, 64)
 		quit.pressed.connect(func(): get_tree().quit())
@@ -569,39 +561,23 @@ func _build_cars() -> void:
 func _build_showroom() -> void:
 	show_root = Node3D.new()
 	show_vp.add_child(show_root)
+	# no backdrop: only the turntable and the car, cel-lit with ink lines, over the menu picture
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.03, 0.04, 0.08)
+	env.background_mode = Environment.BG_CLEAR_COLOR
+	show_vp.transparent_bg = true
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.55, 0.6, 0.75)
-	env.ambient_light_energy = 0.55
+	env.ambient_light_color = Color(0.7, 0.75, 0.95)
+	env.ambient_light_energy = 0.95
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.glow_enabled = true
-	env.glow_intensity = 0.6
-	if Mats.toon():
-		# cel light and ink lines round the car; no backdrop at all, only the
-		# turntable and the car over the menu picture
-		env.background_mode = Environment.BG_CLEAR_COLOR
-		show_vp.transparent_bg = true
-		env.ambient_light_color = Color(0.7, 0.75, 0.95)
-		env.ambient_light_energy = 0.95
-		env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
-		env.glow_intensity = 0.35
-		env.adjustment_enabled = true
-		env.adjustment_saturation = 1.2
-		var ink := MeshInstance3D.new()
-		var quad := QuadMesh.new()
-		quad.size = Vector2(2, 2)
-		ink.mesh = quad
-		var im := ShaderMaterial.new()
-		im.shader = load("res://shaders/outline.gdshader")
-		ink.material_override = im
-		ink.extra_cull_margin = 16384.0
-		ink.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		show_root.add_child(ink)
+	env.glow_intensity = 0.35
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.2
 	var we := WorldEnvironment.new()
 	we.environment = env
 	show_root.add_child(we)
+	show_root.add_child(Race.ink_lines())
 	var key := DirectionalLight3D.new()
 	key.rotation = Vector3(deg_to_rad(-45), deg_to_rad(35), 0)
 	key.light_energy = 1.2
@@ -621,12 +597,7 @@ func _build_showroom() -> void:
 	disc.radial_segments = 64
 	floor_m.mesh = disc
 	var fm := StandardMaterial3D.new()
-	fm.albedo_color = Color(0.09, 0.1, 0.13)
-	fm.roughness = 0.25
-	fm.metallic = 0.4
-	if Mats.toon():
-		fm.albedo_color = Color(0.42, 0.47, 0.7)
-		fm.metallic = 0.0
+	fm.albedo_color = Color(0.42, 0.47, 0.7)
 	floor_m.material_override = fm
 	floor_m.position.y = -0.04
 	show_root.add_child(floor_m)

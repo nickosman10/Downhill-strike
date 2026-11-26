@@ -3,7 +3,6 @@ extends Node3D
 ## One downhill run: builds the world, runs the countdown, rules and results.
 
 signal exit_to_menu
-signal restart
 
 enum State { COUNTDOWN, RACING, FINISHED }
 
@@ -29,16 +28,36 @@ func setup(c: Dictionary, m: int) -> void:
 
 
 func _ready() -> void:
+	# the world is built once; a restart only puts fresh cars on it
 	var dawn := mode == Game.Mode.DAWN_DELIVERY
 	Race.build_environment(self, dawn)
 	Mats.crowd = Game.is_battle(mode)
 	track = Track.new()
 	add_child(track)
 	track.build(course)
+	Music.now_playing.connect(func(title): hud.show_popup("♪ " + title, Color(0.7, 0.85, 1.0)))
+	_spawn()
+	if Music.in_menu:
+		Music.play_race()
+	else:
+		hud.show_popup("♪ " + Music.current.get("title", ""), Color(0.7, 0.85, 1.0))
+
+
+## Cars, camera, HUD and sound for one run, lined up at the start.
+func _spawn() -> void:
+	var dawn := mode == Game.Mode.DAWN_DELIVERY
+	var battle := Game.is_battle(mode)
+	state = State.COUNTDOWN
+	countdown = 3.5
+	race_time = 0.0
+	_rattle_cooldown = 0.0
+	_last_count = -1
+	_tick_valid = false
+	_contact_cooldown = 0.0
+	Music.set_climax(false)
 
 	car = PlayerCar.new()
 	add_child(car)
-	var battle := Game.is_battle(mode)
 	# campaign: you are the hero, in the hero's car
 	var car_id := Campaign.HERO_CAR if mode == Game.Mode.CAMPAIGN else ""
 	car.setup(track, track.start_s - 6.0, -track.hw * 0.45 if battle else 0.0, car_id)
@@ -70,125 +89,93 @@ func _ready() -> void:
 		tutorial = Tutorial.new()
 		add_child(tutorial)
 		tutorial.build(self)
-
-	Music.now_playing.connect(func(title): hud.show_popup("♪ " + title, Color(0.7, 0.85, 1.0)))
-	if Music.in_menu:
-		Music.play_race()
-	else:
-		Music.set_climax(false)
-		hud.show_popup("♪ " + Music.current.get("title", ""), Color(0.7, 0.85, 1.0))
 	audio = EngineAudio.new()
 	audio.car = car
 	add_child(audio)
 
 
+## Run it again: the same road, straight back to the start line with no loading.
+func _respawn() -> void:
+	for n: Node in [audio, tutorial, hud, cam, rival, car]:
+		if n:
+			n.free()
+	audio = null
+	tutorial = null
+	hud = null
+	cam = null
+	rival = null
+	car = null
+	_spawn()
+
+
 static func build_environment(parent: Node, dawn: bool) -> void:
 	var env := Environment.new()
-	var sky_mat := ProceduralSkyMaterial.new()
 	var light := DirectionalLight3D.new()
+	var sky := Sky.new()
 	if dawn:
-		sky_mat.sky_top_color = Color(0.32, 0.42, 0.65)
-		sky_mat.sky_horizon_color = Color(0.98, 0.62, 0.4)
-		sky_mat.ground_horizon_color = Color(0.55, 0.42, 0.38)
-		sky_mat.ground_bottom_color = Color(0.1, 0.1, 0.12)
+		# the delivery run: a warm hazy sunrise
+		var sunrise := ProceduralSkyMaterial.new()
+		sunrise.sky_top_color = Color(0.32, 0.42, 0.65)
+		sunrise.sky_horizon_color = Color(0.98, 0.62, 0.4)
+		sunrise.ground_horizon_color = Color(0.55, 0.42, 0.38)
+		sunrise.ground_bottom_color = Color(0.1, 0.1, 0.12)
+		sky.sky_material = sunrise
 		env.ambient_light_color = Color(0.75, 0.62, 0.6)
-		env.ambient_light_energy = 0.6
+		env.ambient_light_energy = 0.9
 		env.fog_light_color = Color(0.85, 0.62, 0.55)
 		env.fog_density = 0.004
 		light.light_color = Color(1.0, 0.78, 0.55)
-		light.light_energy = 1.0
+		light.light_energy = 1.4
 		light.rotation = Vector3(deg_to_rad(-14.0), deg_to_rad(40.0), 0)
 	else:
-		# First Stage night: everything washed in deep moonlit blue
-		# moonlit night: cool but not monochrome, so greens, greys and paint still read
-		env.ambient_light_color = Color(0.4, 0.46, 0.64)
-		env.ambient_light_energy = 0.8
-		env.fog_light_color = Color(0.05, 0.08, 0.16)
-		env.fog_density = 0.0016
-		light.light_color = Color(0.66, 0.74, 0.95)
-		light.light_energy = 0.8
+		# a real night: dark blue, so headlights and street lamps do the lighting,
+		# but never so dark that the road ahead is lost
+		env.ambient_light_color = Color(0.3, 0.4, 0.75)
+		env.ambient_light_energy = 0.55
+		env.fog_light_color = Color(0.025, 0.045, 0.12)
+		env.fog_density = 0.0011
+		light.light_color = Color(0.7, 0.8, 1.0)
+		light.light_energy = 0.75
 		light.rotation = Vector3(deg_to_rad(-40.0), deg_to_rad(150.0), 0)
-	var sky := Sky.new()
-	if dawn:
-		sky.sky_material = sky_mat
-	else:
-		var night := ShaderMaterial.new()
-		night.shader = load("res://shaders/night_sky.gdshader")
-		sky.sky_material = night
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.fog_enabled = true
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.1
-	# bloom so lamps and lenses glow like the anime CG
-	env.glow_enabled = true
-	env.glow_intensity = 0.9
-	env.glow_strength = 1.1
-	env.glow_bloom = 0.04
-	env.glow_hdr_threshold = 1.0
-	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.08
-	env.adjustment_saturation = 1.05
-	if Mats.hq():
-		_high_quality(env, light, dawn)
-	elif Mats.toon():
-		_cartoon(env, light, dawn, parent)
-	var we := WorldEnvironment.new()
-	we.environment = env
-	parent.add_child(we)
-	parent.add_child(light)
-
-
-## Cast shadows by graphics level: how far they reach and how many shadow
-## maps are drawn for them (each one draws the scene again).
-static func sun_shadows(light: DirectionalLight3D) -> void:
-	if Mats.hq():
-		return
-	var q := Mats.quality
-	light.shadow_enabled = true
-	light.directional_shadow_mode = [DirectionalLight3D.SHADOW_ORTHOGONAL, DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS, DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS][q]
-	light.directional_shadow_max_distance = [45.0, 85.0, 140.0][q]
-
-
-## The cartoon look: flat cel lighting with crisp cast shadows, an anime
-## night sky, and ink lines drawn over the whole picture.
-static func _cartoon(env: Environment, light: DirectionalLight3D, dawn: bool, parent: Node) -> void:
 	Mats.moon_dir = Basis.from_euler(light.rotation).z
 	if not dawn:
 		var night := ShaderMaterial.new()
 		night.shader = load("res://shaders/night_sky_toon.gdshader")
 		night.set_shader_parameter("moon_dir", Mats.moon_dir)
-		var sky := Sky.new()
 		sky.sky_material = night
-		env.sky = sky
-		# a real night: dark blue, so headlights and street lamps do the lighting,
-		# but never so dark that the road ahead is lost
-		env.ambient_light_color = Color(0.3, 0.4, 0.75)
-		env.ambient_light_energy = 0.55
-		light.light_color = Color(0.7, 0.8, 1.0)
-		light.light_energy = 0.75
-		env.fog_light_color = Color(0.025, 0.045, 0.12)
-		env.fog_density = 0.0011
-	else:
-		env.ambient_light_energy = 0.9
-		light.light_energy = 1.4
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+	env.fog_enabled = true
 	env.fog_sky_affect = 0.0          # the sky stays crisp: stars, moon and clouds
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.15
+	# a little bloom so lamps and lenses glow
+	env.glow_enabled = Mats.quality > 0
+	env.glow_intensity = 0.55
+	env.glow_strength = 1.1
+	env.glow_bloom = 0.02
+	env.glow_hdr_threshold = 1.3
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 1.25
+	# crisp cast shadows
 	light.add_to_group("sun")
 	sun_shadows(light)
 	light.shadow_blur = 0.4
 	light.shadow_opacity = 0.9
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.15
-	env.glow_enabled = Mats.quality > 0
-	env.glow_intensity = 0.55
-	env.glow_bloom = 0.02
-	env.glow_hdr_threshold = 1.3
-	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.06
-	env.adjustment_saturation = 1.25
+	var we := WorldEnvironment.new()
+	we.environment = env
+	parent.add_child(we)
+	parent.add_child(light)
+	parent.add_child(ink_lines())
+
+
+## Ink lines over the whole picture: a full-screen pass that draws an outline
+## wherever depth or surface direction breaks.
+static func ink_lines() -> MeshInstance3D:
 	var ink := MeshInstance3D.new()
 	var quad := QuadMesh.new()
 	quad.size = Vector2(2, 2)
@@ -198,71 +185,17 @@ static func _cartoon(env: Environment, light: DirectionalLight3D, dawn: bool, pa
 	ink.material_override = im
 	ink.extra_cull_margin = 16384.0
 	ink.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(ink)
+	ink.visible = Mats.can_ink()
+	return ink
 
 
-## The full-fat look (desktop renderer only): real night sky lighting the
-## scene, bounced light, reflections on the damp road, contact shadows and
-## light shafts through the mist.
-static func _high_quality(env: Environment, light: DirectionalLight3D, dawn: bool) -> void:
-	if not dawn:
-		var pano := ShaderMaterial.new()
-		pano.shader = load("res://shaders/night_sky_hq.gdshader")
-		pano.set_shader_parameter("pano", load("res://assets/pbr/night_sky.hdr"))
-		var sky := Sky.new()
-		sky.sky_material = pano
-		sky.radiance_size = Sky.RADIANCE_SIZE_256
-		env.sky = sky
-		env.sky_rotation = Vector3(0, deg_to_rad(40.0), 0)
-		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_sky_contribution = 1.0
-		env.ambient_light_energy = 2.6
-		env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-		light.light_color = Color(0.62, 0.72, 1.0)
-		light.light_energy = 1.0
-		env.fog_light_color = Color(0.03, 0.045, 0.08)
-		env.fog_density = 0.0006
+## Cast shadows by graphics level: how far they reach and how many shadow
+## maps are drawn for them (each one draws the scene again).
+static func sun_shadows(light: DirectionalLight3D) -> void:
+	var q := Mats.quality
 	light.shadow_enabled = true
-	light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	light.directional_shadow_max_distance = 220.0
-	light.shadow_blur = 1.5
-	light.light_angular_distance = 0.6
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.35
-	env.tonemap_white = 6.0
-	var q: int = 2
-	var game: Node = (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Game")
-	if game:
-		q = game.quality
-	env.ssr_enabled = q >= 1
-	env.ssr_max_steps = 96
-	env.ssr_fade_in = 0.1
-	env.ssr_fade_out = 2.0
-	env.ssao_enabled = true
-	env.ssao_radius = 1.6
-	env.ssao_intensity = 2.2
-	env.ssil_enabled = q >= 2
-	env.ssil_intensity = 1.2
-	env.sdfgi_enabled = q >= 2
-	env.sdfgi_cascades = 4
-	env.sdfgi_min_cell_size = 0.4
-	env.sdfgi_energy = 1.0
-	env.volumetric_fog_enabled = q >= 1
-	light.shadow_enabled = true
-	light.directional_shadow_max_distance = [70.0, 110.0, 150.0][q]
-	light.shadow_opacity = 0.85      # a little moonlight still filters through the canopy
-	env.volumetric_fog_density = 0.006
-	env.volumetric_fog_albedo = Color(0.55, 0.62, 0.8)
-	env.volumetric_fog_length = 120.0
-	env.volumetric_fog_anisotropy = 0.6
-	env.volumetric_fog_ambient_inject = 0.05
-	env.glow_enabled = true
-	env.glow_intensity = 0.7
-	env.glow_bloom = 0.08
-	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
-	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.1
-	env.adjustment_saturation = 1.1
+	light.directional_shadow_mode = [DirectionalLight3D.SHADOW_ORTHOGONAL, DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS, DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS][q]
+	light.directional_shadow_max_distance = [45.0, 85.0, 140.0][q]
 
 
 func _physics_process(dt: float) -> void:
@@ -293,6 +226,11 @@ func _physics_process(dt: float) -> void:
 			car.control_enabled = false
 			car.hold_brake = false
 			car.auto_stop = true
+	# the cars were left at an in-between pose for drawing: put them back first
+	if _tick_valid:
+		car.global_transform = _car_now
+		if rival:
+			rival.global_transform = _rival_now
 	car.physics_step(dt)
 	if rival:
 		rival.step(dt, race_time)
@@ -300,9 +238,32 @@ func _physics_process(dt: float) -> void:
 		_blind_attack(dt)
 	if state == State.RACING:
 		_check_finish()
+	_car_prev = _car_now if _tick_valid else car.global_transform
+	_car_now = car.global_transform
+	if rival:
+		_rival_prev = _rival_now if _tick_valid else rival.global_transform
+		_rival_now = rival.global_transform
+	_tick_valid = true
+
+
+# The cars move in fixed physics steps, but the picture is drawn at whatever
+# rate the screen runs. Drawing each car part-way between its last two steps
+# keeps motion even on any refresh rate.
+var _tick_valid := false
+var _car_prev: Transform3D
+var _car_now: Transform3D
+var _rival_prev: Transform3D
+var _rival_now: Transform3D
 
 
 func _process(dt: float) -> void:
+	if _tick_valid and is_physics_processing():
+		var f := Engine.get_physics_interpolation_fraction()
+		# (a reset or a respawn is a jump, not a movement)
+		if _car_prev.origin.distance_to(_car_now.origin) < 6.0:
+			car.global_transform = _car_prev.interpolate_with(_car_now, f)
+		if rival and _rival_prev.origin.distance_to(_rival_now.origin) < 6.0:
+			rival.global_transform = _rival_prev.interpolate_with(_rival_now, f)
 	cam.follow(dt)
 	hud.update_hud(self)
 
@@ -314,7 +275,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		exit_to_menu.emit()
 	elif event.is_action_pressed("reset_car"):
 		if state == State.FINISHED:
-			restart.emit()
+			_respawn()
 		elif state == State.RACING:
 			car.place(car.s, 0.0)
 			hud.show_popup("RESET", Color(0.8, 0.8, 0.8))

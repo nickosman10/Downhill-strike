@@ -25,10 +25,9 @@ func _ready() -> void:
 	records.load(SAVE_PATH)
 	selected_car = records.get_value("garage", "selected", "ae85")
 	Ui.install(get_tree().root)
-	Mats.realistic = records.get_value("video", "realistic", false)
 	# cartoon style: every object that enters the scene is cel-shaded
 	get_tree().node_added.connect(func(n: Node) -> void:
-		if n is GeometryInstance3D and Mats.toon():
+		if n is GeometryInstance3D:
 			Mats.toonify_node.call_deferred(n))
 	# (a new key: levels saved by earlier builds meant something far heavier)
 	quality = records.get_value("video", "level", 1)
@@ -153,13 +152,6 @@ func set_quality(q: int, by_player := true) -> void:
 	apply_quality()
 
 
-## Art style: cartoon (default) or the photo-style renderer.
-func set_realistic(on: bool) -> void:
-	Mats.realistic = on
-	records.set_value("video", "realistic", on)
-	records.save(SAVE_PATH)
-
-
 func apply_quality() -> void:
 	Mats.quality = quality
 	var vp := get_viewport()
@@ -170,9 +162,7 @@ func apply_quality() -> void:
 	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	if RenderingServer.get_rendering_device() != null:
 		RenderingServer.directional_shadow_atlas_set_size([2048, 4096, 4096][quality], true)
-		var soft := RenderingServer.SHADOW_QUALITY_SOFT_HIGH if Mats.hq() else RenderingServer.SHADOW_QUALITY_SOFT_LOW
-		RenderingServer.directional_soft_shadow_filter_set_quality(soft)
-		RenderingServer.positional_soft_shadow_filter_set_quality(soft)
+
 	for sun in get_tree().get_nodes_in_group("sun"):
 		Race.sun_shadows(sun)
 
