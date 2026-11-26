@@ -452,6 +452,19 @@ func _grass_tufts() -> void:
 	_mm_chunked(mesh, xf, null, cols, 128.0, [60.0, 80.0, 110.0][Mats.quality])
 
 
+## How far a plant spreads sideways from its root once turned and scaled.
+static func plant_reach(mesh: Mesh, b: Basis) -> float:
+	var ab := mesh.get_aabb()
+	var reach := 0.0
+	for cx: float in [ab.position.x, ab.end.x]:
+		for cy: float in [ab.position.y, ab.end.y]:
+			for cz: float in [ab.position.z, ab.end.z]:
+				var v := b * Vector3(cx, cy, cz)
+				reach = maxf(reach, Vector2(v.x, v.z).length())
+	# (the corners of the box lie outside a round crown)
+	return reach * 0.82
+
+
 ## Whether a spot lies in a retaining wall (its leaning face and cap), plus a margin.
 func _in_wall(p: Vector3, margin: float) -> bool:
 	var i := t.nearest_index(p)
@@ -539,10 +552,19 @@ func _plant_pending() -> void:
 			if absf(o.y + 0.35 - ground) > 0.25:
 				o.y = ground - 0.35
 				xfs[k] = Transform3D(xfs[k].basis, o)
-			if clear > 1.0 and road_d < t.hw + 6.0 * sc:
-				# a tree rooted well below the road would hang its crown at car height
-				if o.y + 3.3 * xfs[k].basis.get_scale().y < t.P[ti].y + 3.6:
+			# no branch or leaf crosses the rail line: a plant too wide for its spot
+			# is grown smaller to fit, and left out if that would make it a stump
+			var reach := plant_reach(mesh, xfs[k].basis as Basis)
+			var top: float = o.y + mesh.get_aabb().end.y * (xfs[k].basis as Basis).get_scale().y
+			# measured against every leg of the road this plant rises up to, so a
+			# tree on the slope between two hairpin legs clears the lower one too
+			var room := t.road_clearance(o, o.y - 18.0, top + 0.5) - t.rail - 0.25
+			if reach > room:
+				var fit := room / reach
+				if fit < (0.5 if clear > 1.0 else 0.4):
 					continue
+				xfs[k] = Transform3D((xfs[k].basis as Basis).scaled(Vector3(fit, fit, fit)), o)
+				sc *= fit
 			keep_x.append(xfs[k])
 			keep_c.append(cols[k] if cols.size() > k else Color.WHITE)
 			# later trunks and bushes keep clear of this one
@@ -1376,22 +1398,21 @@ func _trees() -> void:
 		sets[kind].append(Transform3D(b, p))
 		var v := rng.randf_range(0.8, 1.15)
 		cols[kind].append(Color(v, v * rng.randf_range(0.95, 1.1), v))
-	# roadside broadleaf trees whose canopies arch over the road, like the
-	# green tunnels along the real Route 33
+	# roadside broadleaf trees lining the road, standing back from the rail
 	for i in range(0, t.P.size(), 4):
 		for side: float in [-1.0, 1.0]:
 			if wall_sides.has(Vector2i(i, int(side))) or rng.randf() > 0.55:
 				continue
-			var off := t.rail + rng.randf_range(2.0, 5.0)
+			var off := t.rail + rng.randf_range(3.5, 8.5)
 			var p: Vector3 = t.P[i] + t.R[i] * side * off + t.D[i] * rng.randf_range(-2.0, 2.0)
 			if t.dist_to_road(p) < t.rail + 1.5:
 				continue
 			p.y = t.terrain_height(p.x, p.z) - 0.3
 			if absf(p.y - t.P[i].y) > 8.0:
 				continue
-			var sc := rng.randf_range(1.0, 1.5)
-			var lean := Basis(t.D[i], -side * rng.randf_range(0.08, 0.2))
-			var b := (lean * Basis.from_euler(Vector3(0, rng.randf() * TAU, 0))).scaled(Vector3(sc, sc * 1.2, sc) * 1.3)
+			var sc := rng.randf_range(0.8, 1.2)
+			# upright beside the road: nothing leans or reaches out over it
+			var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(sc, sc * 1.2, sc) * 1.3)
 			var k2 := rng.randi_range(0, 1)
 			sets[k2].append(Transform3D(b, p))
 			var v := rng.randf_range(0.85, 1.15)
@@ -1511,7 +1532,13 @@ func _poles() -> void:
 		pole_xf.append(Transform3D(Basis(), base + Vector3.UP * 4.5))
 		var top := base + Vector3.UP * 8.6
 		arm_xf.append(Transform3D(Basis.looking_at(t.D[i], Vector3.UP), top))
-		if last_top != Vector3.INF and last_top.distance_to(top) < 60.0:
+		# no span is strung where its straight run would cut across the road on a bend
+		var clear_span := true
+		if last_top != Vector3.INF:
+			for f: float in [0.2, 0.35, 0.5, 0.65, 0.8]:
+				if t.dist_to_road(last_top.lerp(top, f)) < t.rail + 0.9:
+					clear_span = false
+		if clear_span and last_top != Vector3.INF and last_top.distance_to(top) < 60.0:
 			for w in [-0.65, 0.0, 0.65]:
 				var a: Vector3 = last_top + last_r * w
 				var b: Vector3 = top + t.R[i] * w
@@ -2404,9 +2431,10 @@ func _real_features() -> void:
 	var sr: Vector3 = t.R[si]
 	var base: Vector3 = t.P[si]
 	var gray := _mat(Color(0.55, 0.57, 0.6), 0.5)
-	_piece(_boxm(Vector3(0.25, 6.5, 0.25)), gray, Transform3D(Basis(), base + sr * (t.rail + 0.8) + Vector3.UP * 3.25))
-	_piece(_boxm(Vector3(0.15, 0.15, t.rail + 1.5)), gray, Transform3D(Basis.looking_at(-sr, Vector3.UP), base + sr * 0.7 + Vector3.UP * 6.3))
-	var board := _piece(_boxm(Vector3(4.2, 2.0, 0.1)), _emissive(Color(0.05, 0.22, 0.7), 0.35), Transform3D(Basis.looking_at(sd, Vector3.UP), base + Vector3.UP * 5.4))
+	# (hung high: its lower edge is well clear of cars and of the camera behind them)
+	_piece(_boxm(Vector3(0.25, 7.6, 0.25)), gray, Transform3D(Basis(), base + sr * (t.rail + 0.8) + Vector3.UP * 3.8))
+	_piece(_boxm(Vector3(0.15, 0.15, t.rail + 1.5)), gray, Transform3D(Basis.looking_at(-sr, Vector3.UP), base + sr * 0.7 + Vector3.UP * 7.4))
+	var board := _piece(_boxm(Vector3(4.2, 2.0, 0.1)), _emissive(Color(0.05, 0.22, 0.7), 0.35), Transform3D(Basis.looking_at(sd, Vector3.UP), base + Vector3.UP * 6.5))
 	var sign_lines: Array = t.sign_text if t.sign_text.size() >= 2 else ["↑", "→"]
 	for line in [[sign_lines[0], 0.45], [sign_lines[1], -0.35]]:
 		var lab := Label3D.new()

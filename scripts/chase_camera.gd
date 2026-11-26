@@ -61,7 +61,7 @@ func follow(dt: float) -> void:
 func _keep_over_road(p: Vector3) -> Vector3:
 	var tr: Track = car.track
 	var proj := tr.project(p, car.idx)
-	var lim := tr.rail + 0.6
+	var lim := tr.rail - 0.7      # inside the rail line: trees, bushes and walls all stand beyond it
 	if absf(proj.lat) > lim:
 		var r3: Vector3 = proj.right
 		p -= r3 * (absf(proj.lat) - lim) * signf(proj.lat)

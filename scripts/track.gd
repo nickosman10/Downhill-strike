@@ -158,6 +158,17 @@ func _load_traced(path: String) -> void:
 	var raw: Array[Vector3] = []
 	for p in pts:
 		raw.append(Vector3(p[0], p[1], p[2]))
+	# the traced heights have the odd sudden step in them (half a metre in two):
+	# ease each one out over the samples around it, leaving the rest untouched
+	for pass_i in 40:
+		var rough := false
+		for i in range(1, raw.size() - 1):
+			var mid := (raw[i - 1].y + raw[i + 1].y) * 0.5
+			if absf(raw[i].y - mid) > 0.06:
+				raw[i].y = lerpf(raw[i].y, mid, 0.5)
+				rough = true
+		if not rough:
+			break
 	# run-off road past the real end: carry on along the last heading, gently downhill
 	var m := raw.size()
 	var last_dir := Vector3(raw[m - 1].x - raw[m - 6].x, 0, raw[m - 1].z - raw[m - 6].z).normalized()
@@ -735,17 +746,26 @@ func _build_trees() -> void:
 		var leafs := [Color(0.13, 0.36, 0.17), Color(0.2, 0.4, 0.14)]
 		var near_r: float = [35.0, 60.0, 90.0][Mats.quality]
 		var far_r: float = [300.0, 450.0, 650.0][Mats.quality]
+		var fulls: Array = [sc._toon_tree(11, leafs[0], 0), sc._toon_tree(12, leafs[1], 0), sc._toon_cedar(13, 0)]
 		var kinds: Array = [[], [], []]
 		for k in trunks.size():
 			var x: Transform3D = trunks[k]
 			var up := x.basis.y.length()
-			kinds[k % 3].append(Transform3D(x.basis.scaled(Vector3(0.8, 0.8, 0.8)), x.origin - Vector3.UP * 0.8 * up))
+			var b := x.basis.scaled(Vector3(0.8, 0.8, 0.8))
+			var root := x.origin - Vector3.UP * 0.8 * up
+			# no branch or leaf crosses the rail line: smaller trees close to the road
+			var reach := Scenery.plant_reach(fulls[k % 3], b)
+			var room := dist_to_road(root) - rail - 0.25
+			if reach > room:
+				if room / reach < 0.5:
+					continue
+				b = b.scaled(Vector3.ONE * (room / reach))
+			kinds[k % 3].append(Transform3D(b, root))
 		for k in 3:
 			var typed: Array[Transform3D] = []
 			typed.assign(kinds[k])
-			var full: Mesh = sc._toon_cedar(13, 0) if k == 2 else sc._toon_tree(11 + k, leafs[k], 0)
 			var far: Mesh = sc._toon_cedar(13, 2) if k == 2 else sc._toon_tree(11 + k, leafs[k], 2)
-			_multimesh_cells(full, typed, null, near_r)
+			_multimesh_cells(fulls[k], typed, null, near_r)
 			_multimesh_cells(far, typed, null, far_r, near_r)
 		return
 	add_child(_multimesh(cone, tops, _mat(Color(0.06, 0.16, 0.08))))
@@ -888,6 +908,27 @@ func nearest_index(p: Vector3) -> int:
 					best = d
 					bi = i
 	return bi
+
+
+## Horizontal distance from a point to the nearest part of the road whose
+## surface lies between two heights. Where the road doubles back on itself
+## (stacked hairpins) this looks at every leg, not only the nearest.
+func road_clearance(p: Vector3, lo: float, hi: float) -> float:
+	dist_to_road(p)
+	var key := Vector2i(floori(p.x / ROAD_CELL), floori(p.z / ROAD_CELL))
+	var best := INF
+	for gx in range(-1, 2):
+		for gz in range(-1, 2):
+			var k2 := key + Vector2i(gx, gz)
+			if not _road_grid.has(k2):
+				continue
+			for i in _road_grid[k2]:
+				if P[i].y < lo or P[i].y > hi:
+					continue
+				var dx := P[i].x - p.x
+				var dz := P[i].z - p.z
+				best = minf(best, dx * dx + dz * dz)
+	return sqrt(best)
 
 
 ## Horizontal distance from a point to the nearest centerline sample anywhere

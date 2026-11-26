@@ -44,12 +44,31 @@ func _tag(n: GeometryInstance3D, mesh: Mesh) -> String:
 	return "?"
 
 
+var _vert_cache := {}
+
+
+## A thinned set of a mesh's points (enough to find how far it spreads).
+func _verts(mesh: Mesh) -> PackedVector3Array:
+	if not _vert_cache.has(mesh):
+		var faces := mesh.get_faces()
+		var pts := PackedVector3Array()
+		for k in range(0, faces.size(), maxi(1, faces.size() / 400)):
+			pts.append(faces[k])
+		_vert_cache[mesh] = pts
+	return _vert_cache[mesh]
+
+
 func inspect(t: Track) -> Dictionary:
-	var out := {"ground over road / under wall face": [], "plant in the road": [], "plant in a wall": [], "plant off the ground": [], "plant buried": [],
-		"tree crown at car height": [], "object in the carriageway": [], "object buried in the hillside": [], "object in the air": []}
+	var out := {"ground over road / under wall face": [], "step in the road surface": [], "plant in the road": [], "plant in a wall": [], "plant off the ground": [], "plant buried": [],
+		"tree or bush over the rail line": [], "object in the carriageway": [], "object buried in the hillside": [], "object in the air": []}
 	if not t.terrain_h.is_empty():
 		for f in t.terrain_faults():
 			out["ground over road / under wall face"].append("s=%d %s" % [int(f[0]), f[1]])
+	# the road surface itself: no sudden steps
+	for i in range(1, t.P.size() - 1):
+		var dev := absf(t.P[i].y - (t.P[i - 1].y + t.P[i + 1].y) * 0.5)
+		if dev > 0.12:
+			out["step in the road surface"].append("s=%d %.2fm" % [int(t.S[i]), dev])
 	var has_ground := not t.terrain_h.is_empty()
 	# the foot of each small object: lowest point of anything standing within a few metres
 	var lowest := {}
@@ -86,6 +105,15 @@ func inspect(t: Track) -> Dictionary:
 					var w_reach := float(t.wall_reach.get(Vector2i(i, w_side), 0.0))
 					if w_reach > 0.0 and d < t.rail + w_reach + 0.2 and absf(o.y - t.P[i].y) < 12.0:
 						out["plant in a wall"].append(where + " " + tag)
+				if plant and tag.begins_with("foliage"):
+					# measured on the real leaves and branches, not a box round them
+					var over := 0.0
+					for v in _verts(mm.mesh):
+						var w: Vector3 = x * v
+						# against every leg of the road at or below this leaf
+						over = maxf(over, t.rail - t.road_clearance(w, w.y - 16.0, w.y + 0.5))
+					if over > 0.05:
+						out["tree or bush over the rail line"].append("%s by %.1fm" % [where, over])
 				if not plant or not has_ground:
 					continue
 				var ground := t.terrain_height(o.x, o.z)
@@ -93,9 +121,6 @@ func inspect(t: Track) -> Dictionary:
 					out["plant off the ground"].append("%s %.1fm up" % [where, o.y - ground])
 				elif o.y < ground - 1.6:
 					out["plant buried"].append("%s %.1fm under" % [where, ground - o.y])
-				var sy := x.basis.get_scale().y
-				if ab.size.y > 6.0 and d < t.hw + ab.size.x * 0.5 * x.basis.get_scale().x and o.y + 3.3 * sy < t.P[i].y + 3.0:
-					out["tree crown at car height"].append(where)
 		elif g is MeshInstance3D and (g as MeshInstance3D).mesh:
 			var mesh := (g as MeshInstance3D).mesh
 			var tag := _tag(g, mesh)
@@ -112,13 +137,19 @@ func inspect(t: Track) -> Dictionary:
 			var stride := maxi(1, faces.size() / 60000)
 			for vi in range(0, faces.size(), stride):
 				var v: Vector3 = g.global_transform * faces[vi]
-				if t.dist_to_road(v) > t.hw - 0.2:
-					continue
+				if t.dist_to_road(v) > t.rail - 0.5:
+					continue          # (the camera rides inside this strip as well as the cars)
 				var i := t.nearest_index(v)
 				var up := v.y - t.P[i].y
-				if up > 0.25 and up < 3.0 and not t.in_tunnel(i) and t.S[i] > 30.0:
+				# at a hairpin the other leg of the road may be the nearer one on the
+				# map: measure against whichever leg this point actually lies on
+				for j in range(maxi(i - 70, 0), mini(i + 71, t.P.size()), 2):
+					if Vector2(t.P[j].x - v.x, t.P[j].z - v.z).length() < t.hw + 0.6 and absf(v.y - t.P[j].y) < absf(up):
+						up = v.y - t.P[j].y
+				# (signs, wires and the road above at a stacked hairpin pass overhead from 4.4 m up)
+				if up > 0.3 and up < 4.0 and not t.in_tunnel(i) and t.S[i] > 30.0:
 					hits += 1
-					hit_where = "s=%d" % int(t.S[i])
+					hit_where = "s=%d (%.1fm across, %.1fm up)" % [int(t.S[i]), (v - t.P[i]).dot(t.R[i]), up]
 			if hits > 0:
 				out["object in the carriageway"].append("%s %s (%d points)" % [hit_where, tag, hits])
 			if small and has_ground and wab.size.y > 0.6:
